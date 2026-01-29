@@ -4,6 +4,13 @@
   "description": "Clara Wallet MCP Server - AI agent wallet with x402 payment support",
   "main": "dist/index.js",
   "type": "module",
+  "bin": {
+    "clara-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
