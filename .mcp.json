@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "clara": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "CLARA_PROXY_URL": "https://clara-proxy.bflynn-me.workers.dev",
+        "PARA_WALLET_ID": "eaj2t6npqmfqn69gqgs77hxs"
+      }
+    }
+  }
+}
