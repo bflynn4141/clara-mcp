@@ -106,12 +106,20 @@ export class ParaClient {
     });
 
     // Create the sign request payload
+    // Convert BigInts to strings for JSON serialization
+    const serializableMessage = Object.fromEntries(
+      Object.entries(value).map(([key, val]) => [
+        key,
+        typeof val === 'bigint' ? val.toString() : val,
+      ])
+    );
+
     const signPayload = {
       typedData: {
         domain,
         types,
         primaryType: Object.keys(types)[0],
-        message: value,
+        message: serializableMessage,
       },
     };
 

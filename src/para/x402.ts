@@ -202,7 +202,7 @@ export class X402Client {
   }
 
   /**
-   * Parse PAYMENT-REQUIRED header (Coinbase official format)
+   * Parse PAYMENT-REQUIRED header (supports v1 and v2 formats)
    * Contains base64-encoded JSON with payment details
    */
   private parsePaymentRequiredHeader(header: string, rawHeaders: Record<string, string>): PaymentDetails | null {
@@ -210,7 +210,12 @@ export class X402Client {
       const decoded = Buffer.from(header, 'base64').toString('utf-8');
       const data = JSON.parse(decoded);
 
-      // Expected fields: payTo, maxAmountRequired, asset, network, validUntil, paymentId
+      // Check for x402 v2 format
+      if (data.x402Version === 2 && data.accepts && data.accepts.length > 0) {
+        return this.parseX402V2Format(data, rawHeaders);
+      }
+
+      // v1 format: Expected fields: payTo, maxAmountRequired, asset, network, validUntil, paymentId
       const {
         payTo,
         maxAmountRequired,
@@ -227,24 +232,10 @@ export class X402Client {
       }
 
       // Map network to chainId
-      const chainIdMap: Record<string, number> = {
-        'base': 8453,
-        'base-mainnet': 8453,
-        'base-sepolia': 84532,
-        'ethereum': 1,
-        'ethereum-mainnet': 1,
-        'arbitrum': 42161,
-        'optimism': 10,
-      };
-      const chainId = chainIdMap[network?.toLowerCase()] || 8453;
+      const chainId = this.parseNetworkToChainId(network);
 
       // Parse amount
-      let amountBigInt: bigint;
-      if (typeof maxAmountRequired === 'string' && maxAmountRequired.includes('.')) {
-        amountBigInt = BigInt(Math.floor(parseFloat(maxAmountRequired) * 1_000_000));
-      } else {
-        amountBigInt = BigInt(maxAmountRequired);
-      }
+      const amountBigInt = this.parseAmount(maxAmountRequired);
 
       return {
         recipient: payTo as Hex,
@@ -260,6 +251,103 @@ export class X402Client {
       console.error('Failed to parse PAYMENT-REQUIRED header:', error);
       return null;
     }
+  }
+
+  /**
+   * Parse x402 v2 format
+   * v2 uses accepts[] array with scheme, network, amount, asset, payTo
+   */
+  private parseX402V2Format(data: Record<string, unknown>, rawHeaders: Record<string, string>): PaymentDetails | null {
+    const accepts = data.accepts as Array<{
+      scheme?: string;
+      network?: string;
+      amount?: string;
+      asset?: string;
+      payTo?: string;
+      maxTimeoutSeconds?: number;
+    }>;
+
+    // Use first accepted payment method
+    const payment = accepts[0];
+    if (!payment) {
+      console.error('No payment methods in accepts array');
+      return null;
+    }
+
+    const { network, amount, asset, payTo, maxTimeoutSeconds } = payment;
+
+    if (!payTo || !amount || !asset) {
+      console.error('Missing required x402 v2 fields:', payment);
+      return null;
+    }
+
+    // Parse network (v2 format: "eip155:8453")
+    const chainId = this.parseNetworkToChainId(network);
+
+    // Parse amount (v2 is in base units, e.g., "2000" for 0.002 USDC)
+    const amountBigInt = this.parseAmount(amount);
+
+    // Calculate validUntil from maxTimeoutSeconds
+    const validUntil = Math.floor(Date.now() / 1000) + (maxTimeoutSeconds || 300);
+
+    // Generate paymentId
+    const paymentId = keccak256(
+      encodePacked(['address', 'uint256'], [payTo as Hex, BigInt(Date.now())])
+    );
+
+    // Get description from resource if available
+    const resource = data.resource as { description?: string } | undefined;
+    const description = resource?.description;
+
+    return {
+      recipient: payTo as Hex,
+      amount: amountBigInt,
+      token: asset as Hex,
+      chainId,
+      validUntil,
+      paymentId,
+      description,
+      rawHeaders,
+    };
+  }
+
+  /**
+   * Parse network string to chainId
+   * Handles both v1 ("base") and v2 ("eip155:8453") formats
+   */
+  private parseNetworkToChainId(network?: string): number {
+    if (!network) return 8453; // Default to Base
+
+    // v2 format: "eip155:8453" -> 8453
+    if (network.startsWith('eip155:')) {
+      const chainIdStr = network.split(':')[1];
+      return parseInt(chainIdStr, 10) || 8453;
+    }
+
+    // v1 format: "base", "ethereum", etc.
+    const chainIdMap: Record<string, number> = {
+      'base': 8453,
+      'base-mainnet': 8453,
+      'base-sepolia': 84532,
+      'ethereum': 1,
+      'ethereum-mainnet': 1,
+      'arbitrum': 42161,
+      'optimism': 10,
+    };
+    return chainIdMap[network.toLowerCase()] || 8453;
+  }
+
+  /**
+   * Parse amount string to bigint
+   * Handles decimal ("0.01") and base unit ("2000") formats
+   */
+  private parseAmount(amount: string | number): bigint {
+    const amountStr = String(amount);
+    if (amountStr.includes('.')) {
+      // Decimal format - convert to base units (USDC 6 decimals)
+      return BigInt(Math.floor(parseFloat(amountStr) * 1_000_000));
+    }
+    return BigInt(amountStr);
   }
 
   /**
