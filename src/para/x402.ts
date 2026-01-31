@@ -29,6 +29,40 @@ export const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const;
 export const USDC_ETHEREUM = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as const;
 export const BASE_CHAIN_ID = 8453;
 
+/**
+ * Known EIP-712 domains for tokens that support EIP-3009
+ * These are used as fallbacks when the server doesn't provide token domain info
+ */
+const KNOWN_TOKEN_DOMAINS: Record<string, { name: string; version: string }> = {
+  // USDC on Base
+  [USDC_BASE.toLowerCase()]: { name: 'USD Coin', version: '2' },
+  // USDC on Ethereum
+  [USDC_ETHEREUM.toLowerCase()]: { name: 'USD Coin', version: '2' },
+};
+
+/**
+ * Get the EIP-712 domain for a token, using known defaults if not provided
+ */
+function getTokenDomain(
+  token: string,
+  providedDomain?: { name: string; version: string }
+): { name: string; version: string } | null {
+  // Use provided domain if available
+  if (providedDomain) {
+    return providedDomain;
+  }
+
+  // Fall back to known token domains
+  const knownDomain = KNOWN_TOKEN_DOMAINS[token.toLowerCase()];
+  if (knownDomain) {
+    console.log(`[x402] Using known token domain for ${token.slice(0, 10)}...`);
+    return knownDomain;
+  }
+
+  // Unknown token - can't sign v2
+  return null;
+}
+
 // Supported networks and their chain IDs
 const SUPPORTED_NETWORKS: Record<string, number> = {
   'base': 8453,
@@ -584,7 +618,17 @@ export class X402Client {
     };
   }> {
     // v2: Use EIP-3009 TransferWithAuthorization
-    if (details.x402Version === 2 && details.tokenDomain) {
+    if (details.x402Version === 2) {
+      // Get token domain - from server or known defaults
+      const tokenDomain = getTokenDomain(details.token, details.tokenDomain);
+
+      if (!tokenDomain) {
+        throw new Error(
+          `Cannot sign x402 v2 payment: unknown token domain for ${details.token}. ` +
+          `Server must provide 'extra.name' and 'extra.version', or use a supported token (USDC).`
+        );
+      }
+
       const payer = await this.getAddress();
       const now = Math.floor(Date.now() / 1000);
       const nonce = createNonce();
@@ -600,11 +644,13 @@ export class X402Client {
 
       // Sign against the token contract's EIP-712 domain
       const domain = {
-        name: details.tokenDomain.name,
-        version: details.tokenDomain.version,
+        name: tokenDomain.name,
+        version: tokenDomain.version,
         chainId: details.chainId,
         verifyingContract: details.token,
       };
+
+      console.log(`[x402] Signing v2 EIP-3009 with domain: ${tokenDomain.name} v${tokenDomain.version}`);
 
       const signature = await this.signTypedData(
         domain,
@@ -626,6 +672,7 @@ export class X402Client {
     }
 
     // v1: Use custom Payment type (legacy)
+    console.log('[x402] Signing v1 legacy format');
     const domain = {
       ...X402_DOMAIN,
       chainId: details.chainId,
