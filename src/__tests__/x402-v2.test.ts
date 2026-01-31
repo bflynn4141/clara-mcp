@@ -6,20 +6,26 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { X402Client, USDC_BASE, BASE_CHAIN_ID } from '../para/x402.js';
+import {
+  X402Client,
+  USDC_BASE,
+  BASE_CHAIN_ID,
+  type EIP712Domain,
+  type EIP712TypeDefinition,
+} from '../para/x402.js';
 import type { Hex } from 'viem';
 
 // Mock signer that captures what we're signing
 function createMockSigner() {
   const signedData: Array<{
-    domain: Record<string, unknown>;
-    types: Record<string, unknown>;
+    domain: EIP712Domain;
+    types: EIP712TypeDefinition;
     value: Record<string, unknown>;
   }> = [];
 
   const signTypedData = async (
-    domain: Record<string, unknown>,
-    types: Record<string, unknown>,
+    domain: EIP712Domain,
+    types: EIP712TypeDefinition,
     value: Record<string, unknown>
   ): Promise<Hex> => {
     signedData.push({ domain, types, value });
