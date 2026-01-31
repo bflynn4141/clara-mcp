@@ -11,6 +11,25 @@
 
 import { type Hex, hashTypedData, recoverAddress } from 'viem';
 
+/**
+ * Deep convert BigInt values to strings for JSON serialization
+ * Handles nested objects and arrays recursively
+ */
+function deepConvertBigInt(value: unknown): unknown {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (Array.isArray(value)) {
+    return value.map(deepConvertBigInt);
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, deepConvertBigInt(v)])
+    );
+  }
+  return value;
+}
+
 export interface ParaConfig {
   /** Clara proxy URL (e.g., https://clara-proxy.your-domain.workers.dev) */
   proxyUrl: string;
@@ -106,19 +125,18 @@ export class ParaClient {
     });
 
     // Create the sign request payload
-    // Convert BigInts to strings for JSON serialization
-    const serializableMessage = Object.fromEntries(
-      Object.entries(value).map(([key, val]) => [
-        key,
-        typeof val === 'bigint' ? val.toString() : val,
-      ])
-    );
+    // Deep convert BigInts to strings for JSON serialization
+    const serializableMessage = deepConvertBigInt(value);
+    const serializableDomain = deepConvertBigInt(domain);
+
+    // Get primary type (excluding EIP712Domain which is implicit)
+    const primaryType = Object.keys(types).find((t) => t !== 'EIP712Domain') || Object.keys(types)[0];
 
     const signPayload = {
       typedData: {
-        domain,
+        domain: serializableDomain,
         types,
-        primaryType: Object.keys(types)[0],
+        primaryType,
         message: serializableMessage,
       },
     };
