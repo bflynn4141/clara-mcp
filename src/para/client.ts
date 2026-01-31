@@ -141,12 +141,20 @@ export class ParaClient {
       },
     };
 
+    // Get wallet address from session for the X-Clara-Address header
+    const session = await getSession();
+    const walletAddress = session?.address;
+    if (!walletAddress) {
+      throw new Error('No wallet address found in session. Run wallet_setup first.');
+    }
+
     const response = await fetch(
       `${this.config.proxyUrl}/api/v1/wallets/${this.config.walletId}/sign-typed-data`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Clara-Address': walletAddress,
         },
         body: JSON.stringify(signPayload),
       }
@@ -167,12 +175,20 @@ export class ParaClient {
    * Used for direct on-chain operations when typed data isn't appropriate.
    */
   async signRaw(messageHash: Hex): Promise<Hex> {
+    // Get wallet address from session for the X-Clara-Address header
+    const session = await getSession();
+    const walletAddress = session?.address;
+    if (!walletAddress) {
+      throw new Error('No wallet address found in session. Run wallet_setup first.');
+    }
+
     const response = await fetch(
       `${this.config.proxyUrl}/api/v1/wallets/${this.config.walletId}/sign-raw`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Clara-Address': walletAddress,
         },
         body: JSON.stringify({ messageHash }),
       }
