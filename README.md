@@ -16,12 +16,16 @@ Clara enables AI agents to autonomously pay for web resources using the [x402 pr
       "args": ["clara-mcp"],
       "env": {
         "CLARA_PROXY_URL": "https://your-clara-proxy.workers.dev",
-        "PARA_WALLET_ID": "your-wallet-id"
+        "PARA_WALLET_ID": "your-wallet-id",
+        "ZERION_API_KEY": "your-zerion-api-key"
       }
     }
   }
 }
 ```
+
+> **Get your API keys:**
+> - `ZERION_API_KEY` — Free at [developers.zerion.io](https://developers.zerion.io) (required for `wallet_balance`)
 
 **2. Restart Claude Code** and say: *"browse x402 services"*
 
