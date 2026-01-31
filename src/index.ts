@@ -39,6 +39,10 @@ import {
   tokenDetailsToolDefinition,
   handleTokenToolRequest,
 } from './tools/tokens.js';
+import {
+  balanceToolDefinition,
+  handleBalanceRequest,
+} from './tools/balance.js';
 import { X402Client } from './para/x402.js';
 import { ParaClient, loadParaConfig } from './para/client.js';
 import {
@@ -52,6 +56,7 @@ import {
  */
 const TOOLS = [
   x402ToolDefinition,
+  balanceToolDefinition,
   spendingLimitsToolDefinition,
   spendingHistoryToolDefinition,
   discoverToolDefinition,
@@ -104,6 +109,16 @@ function createServer(): Server {
       const tokenResult = await handleTokenToolRequest(name, args as Record<string, unknown>);
       if (tokenResult) {
         return tokenResult;
+      }
+
+      // Handle balance tool
+      if (name === 'wallet_balance') {
+        const paraConfig = loadParaConfig();
+        const paraClient = new ParaClient(paraConfig);
+        return await handleBalanceRequest(
+          args as Record<string, unknown>,
+          () => paraClient.getAddress()
+        );
       }
 
       // Handle x402 payment tool
