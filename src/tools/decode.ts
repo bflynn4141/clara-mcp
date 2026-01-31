@@ -125,23 +125,41 @@ async function fetchMethodSignature(selector: string): Promise<string | null> {
 
 /**
  * Parse hex parameter to readable format
+ *
+ * Priority order:
+ * 1. Small numbers (< 1M) → decimal string
+ * 2. Addresses (24 zero bytes + 20 byte address) → 0x prefixed
+ * 3. Token amounts (6 or 18 decimals) → formatted with hint
+ * 4. Everything else → trimmed hex
  */
 function parseParam(hex: string, index: number): string {
   // Remove leading zeros for readability
   const trimmed = hex.replace(/^0+/, '') || '0';
 
-  // Check if it looks like an address (40 chars after trimming leading zeros)
-  if (hex.length === 64 && hex.slice(0, 24) === '000000000000000000000000') {
-    return `0x${hex.slice(24)}`;
-  }
-
-  // Check if it's a small number
+  // Parse as number first - this catches small values before address detection
   const num = BigInt('0x' + hex);
+
+  // Check if it's a small number FIRST (before address detection)
+  // This fixes the bug where 100 (0x64) was being treated as an address
   if (num < 1000000n) {
     return num.toString();
   }
 
-  // Check if it might be an amount (6 or 18 decimals)
+  // Check if it looks like an address (24 zero bytes + 20 byte address)
+  // Only treat as address if the value is in the address range
+  // Address range: 0x1 to 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF (2^160 - 1)
+  const MAX_ADDRESS = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF');
+  if (hex.length === 64 && hex.slice(0, 24) === '000000000000000000000000' && num <= MAX_ADDRESS) {
+    // Additional check: addresses typically have some entropy, not just trailing digits
+    const addressPart = hex.slice(24);
+    const nonZeroChars = addressPart.replace(/0/g, '').length;
+    // Real addresses have reasonable entropy (not just "0000...0064")
+    if (nonZeroChars >= 8) {
+      return `0x${addressPart}`;
+    }
+  }
+
+  // Check if it might be a token amount (6 or 18 decimals)
   if (num > 1000000n && num < BigInt('1' + '0'.repeat(30))) {
     // Try common decimal formats
     const asUsdc = Number(num) / 1e6;

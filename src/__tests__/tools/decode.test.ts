@@ -265,10 +265,8 @@ describe('Decode Tool', () => {
       expect(result.content[0].text).toContain('0xabcdef1234567890abcdef1234567890abcdef12');
     });
 
-    it('decodes withdraw with uint256 parameter', async () => {
-      // Note: Current parseParam implementation detects this as address-like
-      // due to 24 leading zeros, so it returns the hex value
-      // TODO: Could improve parseParam to check small numbers before address detection
+    it('formats small numbers correctly', async () => {
+      // Small numbers should be decoded as decimal, not mistaken for addresses
       const withdrawData = '0x2e1a7d4d' +
         '0000000000000000000000000000000000000000000000000000000000000064'; // 100
 
@@ -276,9 +274,9 @@ describe('Decode Tool', () => {
         data: withdrawData,
       });
 
-      // Verify the method is correctly decoded
+      // Verify the method and parameter are correctly decoded
       expect(result.content[0].text).toContain('withdraw');
-      expect(result.content[0].text).toContain('amount');
+      expect(result.content[0].text).toContain('100');
     });
   });
 
