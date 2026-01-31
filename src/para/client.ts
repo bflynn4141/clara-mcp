@@ -209,3 +209,126 @@ export function loadParaConfig(): ParaConfig {
     userId: process.env.PARA_USER_ID,
   };
 }
+
+// Import session storage for wallet management
+import { getSession, saveSession, clearSession } from '../storage/session.js';
+
+const CLARA_PROXY = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+
+export interface SetupResult {
+  isNew: boolean;
+  address: string;
+  email?: string;
+}
+
+export interface WalletStatus {
+  authenticated: boolean;
+  address?: string;
+  email?: string;
+  sessionAge?: string;
+  chains?: string[];
+}
+
+/**
+ * Setup or restore a wallet
+ *
+ * If email is provided, creates/restores a portable wallet.
+ * Otherwise creates a machine-specific wallet.
+ */
+export async function setupWallet(email?: string): Promise<SetupResult> {
+  // Check for existing session
+  const existingSession = await getSession();
+  if (existingSession?.authenticated && existingSession.address) {
+    return {
+      isNew: false,
+      address: existingSession.address,
+      email: existingSession.email,
+    };
+  }
+
+  // Create new wallet via proxy
+  const response = await fetch(`${CLARA_PROXY}/api/v1/wallets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'EVM',
+      userIdentifier: email || `machine:${process.env.USER || 'claude'}:${Date.now()}`,
+      userIdentifierType: email ? 'EMAIL' : 'CUSTOM_ID',
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Wallet creation failed: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json() as {
+    wallet?: { id: string; address: string };
+    wallets?: Array<{ id: string; address: string }>;
+  };
+
+  const wallet = data.wallet || data.wallets?.[0];
+  if (!wallet) {
+    throw new Error('No wallet returned from API');
+  }
+
+  // Save session
+  await saveSession({
+    authenticated: true,
+    walletId: wallet.id,
+    address: wallet.address,
+    email,
+    chains: ['EVM'],
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  });
+
+  return {
+    isNew: true,
+    address: wallet.address,
+    email,
+  };
+}
+
+/**
+ * Get current wallet status
+ */
+export async function getWalletStatus(): Promise<WalletStatus> {
+  const session = await getSession();
+
+  if (!session?.authenticated || !session.address) {
+    return { authenticated: false };
+  }
+
+  // Calculate session age
+  const createdAt = new Date(session.createdAt);
+  const now = new Date();
+  const ageMs = now.getTime() - createdAt.getTime();
+  const ageHours = Math.floor(ageMs / (1000 * 60 * 60));
+  const ageDays = Math.floor(ageHours / 24);
+
+  let sessionAge: string;
+  if (ageDays > 0) {
+    sessionAge = `${ageDays} day${ageDays === 1 ? '' : 's'}`;
+  } else if (ageHours > 0) {
+    sessionAge = `${ageHours} hour${ageHours === 1 ? '' : 's'}`;
+  } else {
+    const ageMinutes = Math.floor(ageMs / (1000 * 60));
+    sessionAge = `${ageMinutes} minute${ageMinutes === 1 ? '' : 's'}`;
+  }
+
+  return {
+    authenticated: true,
+    address: session.address,
+    email: session.email,
+    sessionAge,
+    chains: session.chains || ['EVM'],
+  };
+}
+
+/**
+ * Logout (clear session)
+ */
+export async function logout(): Promise<void> {
+  await clearSession();
+}

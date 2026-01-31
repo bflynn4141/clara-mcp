@@ -13,7 +13,16 @@
  * @see https://x402.org for protocol specification
  */
 
-import { type Hex, encodePacked, keccak256, toHex } from 'viem';
+import { type Hex, encodePacked, keccak256, toHex, hexToBytes } from 'viem';
+import { randomBytes } from 'crypto';
+
+/**
+ * Generate a random bytes32 nonce for EIP-3009
+ */
+function createNonce(): Hex {
+  const bytes = randomBytes(32);
+  return ('0x' + bytes.toString('hex')) as Hex;
+}
 
 // Known token addresses
 export const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const;
@@ -58,12 +67,20 @@ export interface PaymentDetails {
   chainId: number;
   /** Unix timestamp when payment expires */
   validUntil: number;
-  /** Unique payment identifier */
+  /** Unique payment identifier (v1) or generated nonce (v2) */
   paymentId: Hex;
   /** Human-readable description (optional) */
   description?: string;
   /** Original 402 response for debugging */
   rawHeaders: Record<string, string>;
+  /** x402 protocol version (1 or 2) */
+  x402Version?: number;
+  /** Raw accepted payment option (for v2 header construction) */
+  rawAccepted?: Record<string, unknown>;
+  /** Resource info from v2 response */
+  resource?: { url?: string; description?: string; mimeType?: string };
+  /** Token EIP-712 domain params (for v2 EIP-3009 signing) */
+  tokenDomain?: { name: string; version: string };
 }
 
 /**
@@ -106,7 +123,7 @@ export const X402_DOMAIN = {
 export type EIP712TypeDefinition = Record<string, Array<{ name: string; type: string }>>;
 
 /**
- * EIP-712 types for x402 payment authorization
+ * EIP-712 types for x402 v1 payment authorization (legacy)
  */
 export const X402_TYPES: EIP712TypeDefinition = {
   Payment: [
@@ -116,6 +133,25 @@ export const X402_TYPES: EIP712TypeDefinition = {
     { name: 'chainId', type: 'uint256' },
     { name: 'validUntil', type: 'uint256' },
     { name: 'paymentId', type: 'bytes32' },
+  ],
+};
+
+/**
+ * EIP-3009 TransferWithAuthorization types for x402 v2
+ *
+ * This is the official x402 v2 signing format. The signature is made against
+ * the token contract's EIP-712 domain, authorizing a direct token transfer.
+ *
+ * @see https://eips.ethereum.org/EIPS/eip-3009
+ */
+export const TRANSFER_WITH_AUTHORIZATION_TYPES: EIP712TypeDefinition = {
+  TransferWithAuthorization: [
+    { name: 'from', type: 'address' },
+    { name: 'to', type: 'address' },
+    { name: 'value', type: 'uint256' },
+    { name: 'validAfter', type: 'uint256' },
+    { name: 'validBefore', type: 'uint256' },
+    { name: 'nonce', type: 'bytes32' },
   ],
 };
 
@@ -302,6 +338,7 @@ export class X402Client {
       asset?: string;
       payTo?: string;
       maxTimeoutSeconds?: number;
+      extra?: { name?: string; version?: string; [key: string]: unknown };
     }>;
 
     // Find the first SUPPORTED payment option (prefer Base + USDC)
@@ -356,6 +393,12 @@ export class X402Client {
     const resource = data.resource as { description?: string } | undefined;
     const description = resource?.description;
 
+    // Extract token domain params for v2 EIP-3009 signing
+    const extra = payment.extra as { name?: string; version?: string } | undefined;
+    const tokenDomain = extra?.name && extra?.version
+      ? { name: extra.name, version: extra.version }
+      : undefined;
+
     return {
       recipient: payTo as Hex,
       amount: amountBigInt,
@@ -365,6 +408,10 @@ export class X402Client {
       paymentId,
       description,
       rawHeaders,
+      x402Version: 2,
+      rawAccepted: payment,
+      resource: data.resource as { url?: string; description?: string; mimeType?: string } | undefined,
+      tokenDomain,
     };
   }
 
@@ -379,6 +426,7 @@ export class X402Client {
     asset?: string;
     payTo?: string;
     maxTimeoutSeconds?: number;
+    extra?: { name?: string; version?: string; [key: string]: unknown };
   }>): typeof accepts[0] | null {
     // First pass: look for Base + USDC
     for (const option of accepts) {
@@ -519,10 +567,65 @@ export class X402Client {
   /**
    * Create an EIP-712 signature authorizing the payment
    *
-   * This signature proves wallet ownership and authorizes the specific payment.
-   * The server will verify this signature and execute the payment on-chain.
+   * For v1: Signs a custom Payment type against x402 domain
+   * For v2: Signs TransferWithAuthorization against the token contract (EIP-3009)
+   *
+   * The returned object includes the signature and authorization details for v2.
    */
-  async createPaymentSignature(details: PaymentDetails): Promise<Hex> {
+  async createPaymentSignature(details: PaymentDetails): Promise<{
+    signature: Hex;
+    authorization?: {
+      from: Hex;
+      to: Hex;
+      value: string;
+      validAfter: string;
+      validBefore: string;
+      nonce: Hex;
+    };
+  }> {
+    // v2: Use EIP-3009 TransferWithAuthorization
+    if (details.x402Version === 2 && details.tokenDomain) {
+      const payer = await this.getAddress();
+      const now = Math.floor(Date.now() / 1000);
+      const nonce = createNonce();
+
+      const authorization = {
+        from: payer,
+        to: details.recipient,
+        value: details.amount,
+        validAfter: BigInt(now - 600),  // 10 minutes ago
+        validBefore: BigInt(details.validUntil),
+        nonce,
+      };
+
+      // Sign against the token contract's EIP-712 domain
+      const domain = {
+        name: details.tokenDomain.name,
+        version: details.tokenDomain.version,
+        chainId: details.chainId,
+        verifyingContract: details.token,
+      };
+
+      const signature = await this.signTypedData(
+        domain,
+        TRANSFER_WITH_AUTHORIZATION_TYPES,
+        authorization
+      );
+
+      return {
+        signature,
+        authorization: {
+          from: authorization.from,
+          to: authorization.to,
+          value: authorization.value.toString(),
+          validAfter: authorization.validAfter.toString(),
+          validBefore: authorization.validBefore.toString(),
+          nonce: authorization.nonce,
+        },
+      };
+    }
+
+    // v1: Use custom Payment type (legacy)
     const domain = {
       ...X402_DOMAIN,
       chainId: details.chainId,
@@ -537,25 +640,51 @@ export class X402Client {
       paymentId: details.paymentId,
     };
 
-    return this.signTypedData(domain, X402_TYPES, value);
+    const signature = await this.signTypedData(domain, X402_TYPES, value);
+    return { signature };
   }
 
   /**
-   * Create the X-PAYMENT header value
+   * Create the payment header value
    *
-   * Format: base64(JSON({ payer, signature, paymentId }))
+   * For v1: X-PAYMENT header with { payer, signature, paymentId }
+   * For v2: PAYMENT-SIGNATURE header with full x402 v2 payload
    */
-  async createPaymentHeader(details: PaymentDetails, signature: Hex): Promise<string> {
+  async createPaymentHeader(
+    details: PaymentDetails,
+    signatureResult: { signature: Hex; authorization?: Record<string, unknown> }
+  ): Promise<{ headerName: string; headerValue: string }> {
     const payer = await this.getAddress();
 
+    // v2: PAYMENT-SIGNATURE with full payload structure
+    if (details.x402Version === 2 && signatureResult.authorization) {
+      const payload = {
+        x402Version: 2,
+        resource: details.resource,
+        accepted: details.rawAccepted,
+        payload: {
+          signature: signatureResult.signature,
+          authorization: signatureResult.authorization,
+        },
+      };
+
+      return {
+        headerName: 'PAYMENT-SIGNATURE',
+        headerValue: Buffer.from(JSON.stringify(payload)).toString('base64'),
+      };
+    }
+
+    // v1: X-PAYMENT with simple format (legacy)
     const payload = {
       payer,
-      signature,
+      signature: signatureResult.signature,
       paymentId: details.paymentId,
     };
 
-    // Base64 encode the JSON payload
-    return Buffer.from(JSON.stringify(payload)).toString('base64');
+    return {
+      headerName: 'X-PAYMENT',
+      headerValue: Buffer.from(JSON.stringify(payload)).toString('base64'),
+    };
   }
 
   /**
@@ -659,15 +788,15 @@ export class X402Client {
       }
 
       // Sign payment
-      const signature = await this.createPaymentSignature(paymentDetails);
-      const paymentHeader = await this.createPaymentHeader(paymentDetails, signature);
+      const signatureResult = await this.createPaymentSignature(paymentDetails);
+      const { headerName, headerValue } = await this.createPaymentHeader(paymentDetails, signatureResult);
 
-      // Retry with payment header
+      // Retry with payment header (PAYMENT-SIGNATURE for v2, X-PAYMENT for v1)
       const paidResponse = await fetch(url, {
         ...options,
         headers: {
           ...options?.headers,
-          'X-PAYMENT': paymentHeader,
+          [headerName]: headerValue,
         },
         signal: controller.signal,
       });
