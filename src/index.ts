@@ -46,6 +46,8 @@ import {
   recordSpending,
   formatSpendingSummary,
 } from './storage/spending.js';
+import { getSession } from './storage/session.js';
+import type { Hex } from 'viem';
 
 /**
  * All available tools
@@ -174,10 +176,23 @@ async function handleX402Payment(
       };
     }
 
+    // Get wallet address from session (more reliable than API call)
+    const session = await getSession();
+    if (!session?.authenticated || !session.address) {
+      return {
+        content: [{
+          type: 'text',
+          text: '❌ No wallet session found. Run `wallet_setup` first.',
+        }],
+        isError: true,
+      };
+    }
+    const walletAddress = session.address as Hex;
+
     // Create x402 client with Para signing
     const x402Client = new X402Client(
       (domain, types, value) => paraClient.signTypedData(domain, types, value),
-      () => paraClient.getAddress()
+      async () => walletAddress
     );
 
     // Make initial request to check if it's 402
