@@ -117,7 +117,11 @@ async function handleSetup(
     lines.push('   - Minimum deposit: $0.10, each operation costs $0.001');
     lines.push('2. **Start using** - `wallet_pay_x402` for payments, `wallet_balance` for balances');
     lines.push('');
+    lines.push('**🎯 Recommended next step:**');
+    lines.push('Run `wallet_briefing` to get a personalized summary of your wallet activity and opportunities.');
+    lines.push('');
     lines.push('**Useful commands:**');
+    lines.push('- `wallet_briefing` - Get wallet insights and opportunities');
     lines.push('- `wallet_credits` - Check your credit balance');
     lines.push('- `wallet_status` - View wallet details');
     lines.push('- `wallet_spending_limits` - Configure spending controls');
@@ -175,6 +179,10 @@ async function handleStatus(): Promise<{ content: Array<{ type: string; text: st
     lines.push('');
     lines.push('**Spending Limits:**');
     lines.push(formatSpendingSummary());
+
+    // Suggest briefing for intelligence
+    lines.push('');
+    lines.push('💡 **Tip:** Run `wallet_briefing` for personalized insights on your holdings and opportunities.');
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],

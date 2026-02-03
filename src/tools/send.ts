@@ -8,6 +8,8 @@
 import {
   parseUnits,
   encodeFunctionData,
+  createPublicClient,
+  http,
   type Hex,
 } from 'viem';
 import { getSession, touchSession } from '../storage/session.js';
@@ -15,10 +17,12 @@ import { signAndSendTransaction } from '../para/transactions.js';
 import {
   CHAINS,
   getExplorerTxUrl,
+  getRpcUrl,
   isSupportedChain,
   type SupportedChain,
 } from '../config/chains.js';
 import { resolveToken } from '../config/tokens.js';
+import { assessContractRisk, formatRiskAssessment, quickSafeCheck } from '../services/risk.js';
 
 /**
  * Tool definition for wallet_send
@@ -55,10 +59,33 @@ Supported tokens: USDC, USDT, DAI, WETH (or provide contract address).
         type: 'string',
         description: 'Token symbol (USDC, USDT, DAI, WETH) or contract address. Omit for native token.',
       },
+      forceUnsafe: {
+        type: 'boolean',
+        default: false,
+        description: 'Override risk assessment warnings and send anyway. Use with caution.',
+      },
     },
     required: ['to', 'amount'],
   },
 };
+
+/**
+ * Check if address is a contract (has code)
+ */
+async function isContract(address: string, chain: SupportedChain): Promise<boolean> {
+  try {
+    const chainConfig = CHAINS[chain];
+    const client = createPublicClient({
+      chain: chainConfig.chain,
+      transport: http(getRpcUrl(chain)),
+    });
+
+    const code = await client.getCode({ address: address as Hex });
+    return code !== undefined && code !== '0x' && code.length > 2;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * ERC-20 transfer ABI
@@ -86,6 +113,7 @@ export async function handleSendRequest(
   const amount = args.amount as string;
   const chainName = (args.chain as string) || 'base';
   const tokenInput = args.token as string | undefined;
+  const forceUnsafe = args.forceUnsafe as boolean | undefined;
 
   // Validate inputs
   if (!to || !to.startsWith('0x') || to.length !== 42) {
@@ -127,6 +155,53 @@ export async function handleSendRequest(
   const fromAddress = session.address as Hex;
 
   try {
+    // -------------------------------------------------------------------------
+    // Risk Assessment (for contract recipients)
+    // -------------------------------------------------------------------------
+    let riskWarnings: string[] = [];
+
+    // Check if recipient is a contract (not sending tokens via ERC-20)
+    if (!tokenInput) {
+      const recipientIsContract = await isContract(to, chainName);
+
+      if (recipientIsContract) {
+        // Quick check for known safe addresses
+        if (!quickSafeCheck(to, chainName)) {
+          // Full risk assessment for unknown contracts
+          const assessment = await assessContractRisk(to, chainName);
+
+          if (assessment.recommendation === 'avoid') {
+            // CRITICAL: Block sends to high-risk contracts unless explicitly overridden
+            if (!forceUnsafe) {
+              const warnings = formatRiskAssessment(assessment);
+              return {
+                content: [{
+                  type: 'text',
+                  text: [
+                    '🚫 **Transaction Blocked - High Risk Detected**',
+                    '',
+                    'This contract has been flagged as potentially dangerous:',
+                    '',
+                    ...warnings,
+                    '',
+                    '---',
+                    '',
+                    'To proceed anyway, add `"forceUnsafe": true` to your request.',
+                    '⚠️ **This may result in loss of funds.**',
+                  ].join('\n'),
+                }],
+                isError: true,
+              };
+            }
+            // User explicitly overrode - add warnings but proceed
+            riskWarnings = ['⚠️ **RISK OVERRIDE ENABLED** - Proceeding despite high-risk assessment', ...formatRiskAssessment(assessment)];
+          } else if (assessment.recommendation === 'caution') {
+            riskWarnings = formatRiskAssessment(assessment);
+          }
+        }
+      }
+    }
+
     let txHash: Hex;
     let symbol: string;
     let sentAmount: string;
@@ -186,20 +261,28 @@ export async function handleSendRequest(
     // Success response
     const explorerUrl = getExplorerTxUrl(chainName, txHash);
 
+    const lines = [
+      `✅ Transaction sent!`,
+      '',
+      `**Amount:** ${sentAmount} ${symbol}`,
+      `**To:** \`${to}\``,
+      `**Chain:** ${chainName}`,
+      `**From:** \`${fromAddress}\``,
+      '',
+      `**Transaction:** [${txHash.slice(0, 10)}...${txHash.slice(-8)}](${explorerUrl})`,
+    ];
+
+    // Add risk warnings if any (transaction was still sent, but user should be aware)
+    if (riskWarnings.length > 0) {
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+      lines.push('### ⚠️ Risk Assessment');
+      lines.push(...riskWarnings);
+    }
+
     return {
-      content: [{
-        type: 'text',
-        text: [
-          `✅ Transaction sent!`,
-          '',
-          `**Amount:** ${sentAmount} ${symbol}`,
-          `**To:** \`${to}\``,
-          `**Chain:** ${chainName}`,
-          `**From:** \`${fromAddress}\``,
-          '',
-          `**Transaction:** [${txHash.slice(0, 10)}...${txHash.slice(-8)}](${explorerUrl})`,
-        ].join('\n'),
-      }],
+      content: [{ type: 'text', text: lines.join('\n') }],
     };
   } catch (error) {
     return {

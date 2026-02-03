@@ -14,9 +14,11 @@ import {
   decodeFunctionData,
   type Hex,
   type TransactionRequest,
+  type Abi,
 } from 'viem';
 import { getSession, touchSession } from '../storage/session.js';
 import { CHAINS, getRpcUrl, isSupportedChain, type SupportedChain, getChainId } from '../config/chains.js';
+import { getProviderRegistry } from '../providers/index.js';
 
 // Tenderly API (optional, best simulation quality)
 const TENDERLY_API_KEY = process.env.TENDERLY_API_KEY;
@@ -124,14 +126,169 @@ const KNOWN_METHODS: Record<string, string> = {
 };
 
 /**
- * Decode method selector to human-readable name
+ * Decode method selector to human-readable name (basic fallback)
  */
-function decodeMethod(data: string | undefined): string {
+function decodeMethodBasic(data: string | undefined): string {
   if (!data || data === '0x' || data.length < 10) {
     return 'Native Transfer';
   }
   const selector = data.slice(0, 10).toLowerCase();
   return KNOWN_METHODS[selector] || `Unknown (${selector})`;
+}
+
+/**
+ * Decoded method info with arguments
+ */
+interface DecodedMethodInfo {
+  name: string;
+  signature?: string;
+  args?: Record<string, unknown>;
+  summary?: string;
+}
+
+/**
+ * Try to decode method using Herd's contract metadata
+ */
+async function decodeMethodWithHerd(
+  to: string,
+  data: string | undefined,
+  chain: SupportedChain
+): Promise<DecodedMethodInfo> {
+  if (!data || data === '0x' || data.length < 10) {
+    return { name: 'Native Transfer' };
+  }
+
+  const selector = data.slice(0, 10).toLowerCase();
+  const basicName = KNOWN_METHODS[selector];
+
+  // Try to get full metadata from Herd
+  const registry = getProviderRegistry();
+
+  if (!registry.hasCapability('ContractMetadata', chain)) {
+    return { name: basicName || `Unknown (${selector})` };
+  }
+
+  try {
+    const result = await registry.getContractMetadata({
+      address: to,
+      chain,
+      detailLevel: 'functions',
+      includeAbi: true,
+    });
+
+    if (!result.success || !result.data) {
+      return { name: basicName || `Unknown (${selector})` };
+    }
+
+    const metadata = result.data;
+
+    // Find the function by selector
+    const func = metadata.functions.find(f => {
+      // Compute selector from name and inputs
+      const sig = `${f.name}(${f.inputs.map(i => i.type).join(',')})`;
+      const hash = computeSelector(sig);
+      return hash === selector;
+    });
+
+    if (!func) {
+      return {
+        name: basicName || `Unknown (${selector})`,
+        summary: metadata.name ? `on ${metadata.name}` : undefined,
+      };
+    }
+
+    // Try to decode arguments if we have the ABI
+    let decodedArgs: Record<string, unknown> | undefined;
+
+    if (metadata.abi && func) {
+      try {
+        const abi = metadata.abi as Abi;
+        const decoded = decodeFunctionData({ abi, data: data as Hex });
+
+        if (decoded.args && func.inputs) {
+          decodedArgs = {};
+          for (let i = 0; i < func.inputs.length; i++) {
+            decodedArgs[func.inputs[i].name || `arg${i}`] = decoded.args[i];
+          }
+        }
+      } catch {
+        // ABI decode failed, continue without args
+      }
+    }
+
+    const signature = `${func.name}(${func.inputs.map(i => `${i.type} ${i.name}`).join(', ')})`;
+
+    return {
+      name: func.name,
+      signature,
+      args: decodedArgs,
+      summary: func.summary || (metadata.name ? `on ${metadata.name}` : undefined),
+    };
+  } catch {
+    return { name: basicName || `Unknown (${selector})` };
+  }
+}
+
+/**
+ * Compute function selector (first 4 bytes of keccak256)
+ */
+function computeSelector(signature: string): string {
+  // Simple keccak256 for selector computation
+  // In production, use viem's toFunctionSelector
+  const { keccak256, toBytes } = require('viem');
+  try {
+    const hash = keccak256(toBytes(signature));
+    return hash.slice(0, 10).toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Format argument value for display
+ */
+function formatArgValue(value: unknown): string {
+  if (typeof value === 'string') {
+    // Address
+    if (value.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return `\`${value.slice(0, 10)}...${value.slice(-6)}\``;
+    }
+    // Hash
+    if (value.match(/^0x[a-fA-F0-9]{64}$/)) {
+      return `\`${value.slice(0, 14)}...\``;
+    }
+    // Large number string (likely wei)
+    if (value.match(/^[0-9]{10,}$/)) {
+      const num = BigInt(value);
+      if (num >= BigInt(1e18)) {
+        return `${(Number(num) / 1e18).toFixed(4)} (${value} wei)`;
+      }
+      if (num >= BigInt(1e6)) {
+        return `${(Number(num) / 1e6).toFixed(2)} (6 decimals)`;
+      }
+    }
+    return value.length > 50 ? `${value.slice(0, 50)}...` : value;
+  }
+  if (typeof value === 'bigint') {
+    const num = value;
+    if (num >= BigInt(1e18)) {
+      return `${(Number(num) / 1e18).toFixed(4)} (${num.toString()} wei)`;
+    }
+    if (num >= BigInt(1e6)) {
+      return `${(Number(num) / 1e6).toFixed(2)} (6 decimals)`;
+    }
+    return num.toString();
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 3) {
+      return `[${value.slice(0, 3).map(v => formatArgValue(v)).join(', ')}, ...]`;
+    }
+    return `[${value.map(v => formatArgValue(v)).join(', ')}]`;
+  }
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value).slice(0, 100);
+  }
+  return String(value);
 }
 
 
@@ -343,8 +500,8 @@ export async function handleSimulateRequest(
   const chainConfig = CHAINS[chainName];
 
   try {
-    // Decode method for display
-    const methodName = decodeMethod(data);
+    // Decode method for display (enhanced with Herd)
+    const methodInfo = await decodeMethodWithHerd(to, data, chainName);
 
     // Choose simulation method
     let result: {
@@ -386,7 +543,28 @@ export async function handleSimulateRequest(
 
     lines.push('');
     lines.push('### Transaction Details');
-    lines.push(`- **Method:** ${methodName}`);
+
+    // Method info with signature and arguments
+    if (methodInfo.signature) {
+      lines.push(`- **Method:** \`${methodInfo.signature}\``);
+    } else {
+      lines.push(`- **Method:** ${methodInfo.name}`);
+    }
+
+    if (methodInfo.summary) {
+      lines.push(`  _${methodInfo.summary}_`);
+    }
+
+    // Show decoded arguments if available
+    if (methodInfo.args && Object.keys(methodInfo.args).length > 0) {
+      lines.push('');
+      lines.push('**Arguments:**');
+      for (const [name, value] of Object.entries(methodInfo.args)) {
+        const formatted = formatArgValue(value);
+        lines.push(`- \`${name}\`: ${formatted}`);
+      }
+    }
+
     lines.push(`- **To:** \`${to}\``);
     lines.push(`- **From:** \`${from}\``);
     lines.push(`- **Chain:** ${chainName}`);

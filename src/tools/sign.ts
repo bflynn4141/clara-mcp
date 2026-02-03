@@ -321,3 +321,19 @@ export async function handleSignMessageRequest(
     };
   }
 }
+
+/**
+ * Unified handler for sign tools
+ */
+export async function handleSignRequest(
+  name: string,
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean } | null> {
+  if (name === 'wallet_sign_message') {
+    return handleSignMessageRequest(args);
+  }
+  if (name === 'wallet_sign_typed_data') {
+    return handleSignTypedDataRequest(args);
+  }
+  return null;
+}

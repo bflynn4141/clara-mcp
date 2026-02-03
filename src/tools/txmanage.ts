@@ -365,3 +365,19 @@ export async function handleSpeedUpRequest(
     };
   }
 }
+
+/**
+ * Unified handler for tx management tools
+ */
+export async function handleTxManageRequest(
+  name: string,
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean } | null> {
+  if (name === 'wallet_cancel') {
+    return handleCancelRequest(args);
+  }
+  if (name === 'wallet_speed_up') {
+    return handleSpeedUpRequest(args);
+  }
+  return null;
+}

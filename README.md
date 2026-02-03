@@ -236,6 +236,113 @@ View recent autonomous payment history, grouped by day.
 
 ---
 
+## 🧠 INTELLIGENCE — Smart Contract Analysis
+
+Clara's Wallet Intelligence System provides deep contract analysis, opportunity detection, and safe transaction execution.
+
+### `wallet_analyze_holding`
+
+Analyze any token in your wallet to understand what it is and what you can do with it.
+
+```json
+{
+  "token": "0x1234...",
+  "chain": "base"
+}
+```
+
+**Detects:**
+- Token type (governance, LP, vault, staking, vesting)
+- Available functions (claim, stake, delegate, etc.)
+- Related contracts (staking, governance, rewards)
+- Your balance and voting power
+
+---
+
+### `wallet_execute`
+
+Execute DeFi actions with **mandatory simulation** — see exactly what will happen before signing.
+
+```json
+{
+  "contract": "0x1234...",
+  "action": "claim",
+  "chain": "base"
+}
+```
+
+**Supported actions:**
+- `claim` — Claim pending staking rewards
+- `delegate` — Delegate voting power (use `delegateTo: "self"` or an address)
+- `exit` — Exit position (unstake + claim in one tx)
+- `release` — Release vested tokens
+
+**Safety features:**
+- ✅ Tenderly simulation shows expected token balance changes
+- ✅ Contract verification checks (warns on unverified)
+- ✅ Proxy/implementation safety checks
+- ✅ Upgrade awareness (shows admin address for upgradeable contracts)
+- ✅ Blocks execution if simulation unavailable (mandatory simulation policy)
+
+---
+
+### `wallet_scan_opportunities`
+
+Proactively scan your holdings for actionable opportunities.
+
+```json
+{
+  "chain": "base"
+}
+```
+
+**Detects:**
+- Unclaimed staking rewards
+- Governance voting power
+- Recent token inflows
+- Vesting tokens ready to release
+
+---
+
+### `wallet_analyze_contract`
+
+Deep-dive analysis of any smart contract.
+
+```json
+{
+  "address": "0x1234...",
+  "chain": "base"
+}
+```
+
+**Returns:**
+- Contract type classification
+- All available functions
+- Proxy/implementation status
+- Safety warnings
+
+---
+
+### Configuration: Tenderly (Optional)
+
+For rich balance change previews ("You'll receive +50 REWARD tokens"), add Tenderly:
+
+```json
+{
+  "env": {
+    "TENDERLY_API_KEY": "your-api-key",
+    "TENDERLY_ACCOUNT_SLUG": "your-account",
+    "TENDERLY_PROJECT_SLUG": "your-project"
+  }
+}
+```
+
+Without Tenderly, Clara still works but only shows "Transaction will succeed" without token details.
+
+**Free tier:** 62,500 simulations/month (more than enough for personal use).
+
+---
+
 ## 💰 EARN — Token Opportunities
 
 Clara integrates with the Clara token ecosystem to discover yield opportunities:
@@ -456,11 +563,18 @@ npm publish
 
 | Tool | Purpose |
 |------|---------|
+| **x402 Payments** | |
 | `wallet_pay_x402` | Pay for 402-gated content |
 | `wallet_discover_x402` | Check domain for x402 support |
 | `wallet_browse_x402` | Browse x402 ecosystem catalog |
 | `wallet_spending_limits` | View/set spending controls |
 | `wallet_spending_history` | View payment history |
+| **Intelligence** | |
+| `wallet_analyze_holding` | Analyze token type & available actions |
+| `wallet_execute` | Execute DeFi actions with simulation |
+| `wallet_scan_opportunities` | Find unclaimed rewards & opportunities |
+| `wallet_analyze_contract` | Deep contract analysis |
+| **Token Discovery** | |
 | `wallet_discover_tokens` | Find auctions & staking yields |
 | `wallet_token_details` | Deep dive on a token |
 

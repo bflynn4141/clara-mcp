@@ -34,11 +34,6 @@ import {
   browseToolDefinition,
   handleDiscoveryToolRequest,
 } from './tools/discovery.js';
-import {
-  discoverTokensToolDefinition,
-  tokenDetailsToolDefinition,
-  handleTokenToolRequest,
-} from './tools/tokens.js';
 import { X402Client } from './para/x402.js';
 import { ParaClient, loadParaConfig } from './para/client.js';
 import {
@@ -49,17 +44,112 @@ import {
 import { getSession } from './storage/session.js';
 import type { Hex } from 'viem';
 
+// Wallet core tools
+import {
+  setupToolDefinition,
+  statusToolDefinition,
+  logoutToolDefinition,
+  handleWalletToolRequest,
+} from './tools/wallet.js';
+import { balanceToolDefinition, handleBalanceRequest } from './tools/balance.js';
+import { historyToolDefinition, handleHistoryRequest } from './tools/history.js';
+import { sendToolDefinition, handleSendRequest } from './tools/send.js';
+import {
+  cancelToolDefinition,
+  speedUpToolDefinition,
+  handleTxManageRequest,
+} from './tools/txmanage.js';
+import {
+  signMessageToolDefinition,
+  signTypedDataToolDefinition,
+  handleSignRequest,
+} from './tools/sign.js';
+import { simulateToolDefinition, handleSimulateRequest } from './tools/simulate.js';
+import { approvalsToolDefinition, handleApprovalsRequest } from './tools/approvals.js';
+import { ensToolDefinition, handleEnsRequest } from './tools/ens.js';
+import { creditsToolDefinition, handleCreditsRequest } from './tools/credits.js';
+
+// Herd-powered analysis tools
+import { initProviders } from './providers/index.js';
+import {
+  analyzeContractToolDefinition,
+  handleAnalyzeContract,
+} from './tools/analyze-contract.js';
+import {
+  analyzeTxToolDefinition,
+  handleAnalyzeTx,
+} from './tools/analyze-tx.js';
+import {
+  monitorEventsToolDefinition,
+  handleMonitorEvents,
+} from './tools/monitor-events.js';
+import {
+  searchCodeToolDefinition,
+  handleSearchCode,
+} from './tools/search-code.js';
+import {
+  compareUpgradesToolDefinition,
+  handleCompareUpgrades,
+} from './tools/compare-upgrades.js';
+
+// Intelligence tools (wallet analysis)
+import {
+  analyzeHoldingToolDefinition,
+  handleAnalyzeHoldingRequest,
+} from './tools/analyze-holding.js';
+import {
+  opportunitiesToolDefinition,
+  handleOpportunitiesRequest,
+} from './tools/opportunities.js';
+import {
+  briefingToolDefinition,
+  handleBriefingRequest,
+} from './tools/briefing.js';
+import {
+  executeToolDefinition,
+  handleExecuteRequest,
+} from './tools/execute.js';
+
 /**
  * All available tools
  */
 const TOOLS = [
+  // Wallet Core (session + identity)
+  setupToolDefinition,
+  statusToolDefinition,
+  logoutToolDefinition,
+  // Wallet Operations
+  balanceToolDefinition,
+  historyToolDefinition,
+  sendToolDefinition,
+  cancelToolDefinition,
+  speedUpToolDefinition,
+  // Signing
+  signMessageToolDefinition,
+  signTypedDataToolDefinition,
+  // Simulation & Safety
+  simulateToolDefinition,
+  approvalsToolDefinition,
+  // Utilities
+  ensToolDefinition,
+  creditsToolDefinition,
+  // x402 Payments (Clara's core)
   x402ToolDefinition,
   spendingLimitsToolDefinition,
   spendingHistoryToolDefinition,
   discoverToolDefinition,
   browseToolDefinition,
-  discoverTokensToolDefinition,
-  tokenDetailsToolDefinition,
+  // Herd-powered analysis tools
+  analyzeContractToolDefinition,
+  analyzeTxToolDefinition,
+  monitorEventsToolDefinition,
+  searchCodeToolDefinition,
+  compareUpgradesToolDefinition,
+  // Intelligence tools (wallet analysis)
+  analyzeHoldingToolDefinition,
+  opportunitiesToolDefinition,
+  briefingToolDefinition,
+  executeToolDefinition,
 ];
 
 /**
@@ -90,6 +180,59 @@ function createServer(): Server {
     const { name, arguments: args } = request.params;
 
     try {
+      // Handle wallet core tools (setup, status, logout)
+      const walletResult = await handleWalletToolRequest(name, args as Record<string, unknown>);
+      if (walletResult) {
+        return walletResult;
+      }
+
+      // Handle balance
+      if (name === 'wallet_balance') {
+        return await handleBalanceRequest(args as Record<string, unknown>);
+      }
+
+      // Handle history
+      if (name === 'wallet_history') {
+        return await handleHistoryRequest(args as Record<string, unknown>);
+      }
+
+      // Handle send
+      if (name === 'wallet_send') {
+        return await handleSendRequest(args as Record<string, unknown>);
+      }
+
+      // Handle tx management (cancel, speed_up)
+      const txManageResult = await handleTxManageRequest(name, args as Record<string, unknown>);
+      if (txManageResult) {
+        return txManageResult;
+      }
+
+      // Handle signing tools
+      const signResult = await handleSignRequest(name, args as Record<string, unknown>);
+      if (signResult) {
+        return signResult;
+      }
+
+      // Handle simulation
+      if (name === 'wallet_simulate') {
+        return await handleSimulateRequest(args as Record<string, unknown>);
+      }
+
+      // Handle approvals
+      if (name === 'wallet_approvals') {
+        return await handleApprovalsRequest(args as Record<string, unknown>);
+      }
+
+      // Handle ENS resolution
+      if (name === 'wallet_resolve_ens') {
+        return await handleEnsRequest(args as Record<string, unknown>);
+      }
+
+      // Handle credits
+      if (name === 'wallet_credits') {
+        return await handleCreditsRequest(args as Record<string, unknown>);
+      }
+
       // Handle spending tools
       const spendingResult = handleSpendingToolRequest(name, args);
       if (spendingResult) {
@@ -102,10 +245,35 @@ function createServer(): Server {
         return discoveryResult;
       }
 
-      // Handle token discovery tools (Clara ecosystem)
-      const tokenResult = await handleTokenToolRequest(name, args as Record<string, unknown>);
-      if (tokenResult) {
-        return tokenResult;
+      // Handle Herd-powered analysis tools
+      if (name === 'wallet_analyze_contract') {
+        return await handleAnalyzeContract(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_analyze_tx') {
+        return await handleAnalyzeTx(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_monitor_events') {
+        return await handleMonitorEvents(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_search_code') {
+        return await handleSearchCode(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_compare_upgrades') {
+        return await handleCompareUpgrades(args as Record<string, unknown>);
+      }
+
+      // Handle Intelligence tools (wallet analysis)
+      if (name === 'wallet_analyze_holding') {
+        return await handleAnalyzeHoldingRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_opportunities') {
+        return await handleOpportunitiesRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_briefing') {
+        return await handleBriefingRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_execute') {
+        return await handleExecuteRequest(args as Record<string, unknown>);
       }
 
       // Handle x402 payment tool
@@ -351,6 +519,9 @@ async function handleX402Payment(
  * Main entry point
  */
 async function main(): Promise<void> {
+  // Initialize providers (Zerion, Herd, etc.)
+  await initProviders();
+
   const server = createServer();
   const transport = new StdioServerTransport();
 

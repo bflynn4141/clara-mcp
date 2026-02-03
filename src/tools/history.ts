@@ -2,15 +2,18 @@
  * History Tool
  *
  * View recent transaction history across chains.
- * Uses Zerion API for multi-chain indexing.
+ * Uses Provider Registry for multi-provider support:
+ * - Zerion: Primary provider for account-level history (supports 38+ chains)
+ * - Herd: Future integration for enhanced tx decoding
  *
  * @see https://developers.zerion.io/reference/listwallettransactions
  */
 
 import { type Hex } from 'viem';
 import { getSession, touchSession } from '../storage/session.js';
+import { getProviderRegistry, type TransactionSummary } from '../providers/index.js';
 
-// Zerion API - get key at https://zerion.io/api
+// Zerion API key for fallback
 const ZERION_API_KEY = process.env.ZERION_API_KEY;
 
 /**
@@ -257,6 +260,46 @@ function formatTransaction(tx: ZerionTransaction): string {
 }
 
 /**
+ * Format transaction from Provider Registry result
+ */
+function formatProviderTransaction(tx: TransactionSummary): string {
+  const { emoji, label } = getOperationDisplay(tx.type);
+
+  // Format timestamp
+  const date = new Date(tx.timestamp);
+  const timestamp = date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  // Build transfer summary
+  let transferInfo = '';
+  if (tx.transfers && tx.transfers.length > 0) {
+    const parts: string[] = [];
+    for (const transfer of tx.transfers.slice(0, 2)) {
+      const direction = transfer.direction === 'out' ? '-' : '+';
+      const value = transfer.valueUsd ? ` ($${parseFloat(transfer.valueUsd).toFixed(2)})` : '';
+      parts.push(`${direction}${transfer.amount} ${transfer.token.symbol}${value}`);
+    }
+    transferInfo = parts.join(' ');
+  }
+
+  // Status emoji
+  const status = tx.status === 'confirmed' ? '✅' :
+                 tx.status === 'failed' ? '❌' : '⏳';
+
+  // Chain and explorer link
+  const shortHash = tx.hash.slice(0, 10);
+  const explorerUrl = tx.explorerUrl || `https://etherscan.io/tx/${tx.hash}`;
+
+  // Build final line
+  const transferDisplay = transferInfo ? ` | ${transferInfo}` : '';
+  return `${status} **${timestamp}** | ${emoji} ${label}${transferDisplay} | [\`${shortHash}...\`](${explorerUrl})`;
+}
+
+/**
  * Handle wallet_history requests
  */
 export async function handleHistoryRequest(
@@ -303,38 +346,68 @@ export async function handleHistoryRequest(
     lines.push('## 📜 Transaction History');
     lines.push('');
 
-    // Zerion can fetch all chains in one call - much more efficient!
-    let chainFilter: string[] | null = null;
+    // Use Provider Registry for history listing
+    const registry = getProviderRegistry();
 
-    if (chainInput !== 'all') {
-      // Single chain filter
-      if (!isSupportedChain(chainInput)) {
-        return {
-          content: [{
-            type: 'text',
-            text: `❌ Unsupported chain: ${chainInput}\n\nSupported: base, ethereum, arbitrum, optimism, polygon, all`,
-          }],
-          isError: true,
-        };
-      }
-      chainFilter = [ZERION_CHAINS[chainInput]];
-      lines.push(`**Chain:** ${chainInput} | **Address:** \`${address.slice(0, 10)}...\``);
-    } else {
-      // All supported chains
-      chainFilter = Object.values(ZERION_CHAINS);
+    // Validate chain input
+    if (chainInput !== 'all' && !isSupportedChain(chainInput)) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Unsupported chain: ${chainInput}\n\nSupported: base, ethereum, arbitrum, optimism, polygon, all`,
+        }],
+        isError: true,
+      };
+    }
+
+    // Type-safe chain value
+    const chain = chainInput as SupportedChain | 'all';
+
+    if (chainInput === 'all') {
       lines.push(`**Chains:** all | **Address:** \`${address.slice(0, 10)}...\``);
+    } else {
+      lines.push(`**Chain:** ${chainInput} | **Address:** \`${address.slice(0, 10)}...\``);
     }
 
     lines.push('');
 
-    // Fetch transactions (Zerion handles multi-chain in one request!)
-    const transactions = await fetchZerionHistory(address, chainFilter, limit);
+    // Try Provider Registry first (uses Zerion internally for history)
+    const result = await registry.listHistory({
+      address,
+      chain,
+      limit,
+    });
 
-    if (transactions.length === 0) {
-      lines.push('_No transactions found_');
+    if (!result.success || !result.data) {
+      // Fallback to direct Zerion if provider registry fails
+      const chainFilter = chainInput === 'all'
+        ? Object.values(ZERION_CHAINS)
+        : [ZERION_CHAINS[chainInput as SupportedChain]];
+      const transactions = await fetchZerionHistory(address, chainFilter, limit);
+
+      if (transactions.length === 0) {
+        lines.push('_No transactions found_');
+      } else {
+        for (const tx of transactions) {
+          lines.push(formatTransaction(tx));
+        }
+      }
     } else {
-      for (const tx of transactions) {
-        lines.push(formatTransaction(tx));
+      // Format transactions from provider result
+      const transactions = result.data.transactions;
+
+      if (transactions.length === 0) {
+        lines.push('_No transactions found_');
+      } else {
+        for (const tx of transactions) {
+          lines.push(formatProviderTransaction(tx));
+        }
+      }
+
+      // Show provider info
+      if (result.level === 'basic') {
+        lines.push('');
+        lines.push('_Note: Some chain data may be incomplete_');
       }
     }
 
