@@ -345,7 +345,9 @@ export async function handleAnalyzeTx(
     return {
       content: [{
         type: 'text',
-        text: `❌ Transaction analysis not available for ${targetChain}. Is Herd enabled?`,
+        text: `❌ Transaction analysis not available for ${targetChain}.\n\n` +
+          `**To fix:** Add \`HERD_ENABLED=true\` to Clara's MCP config env block.\n\n` +
+          `Alternatively, use \`mcp__herd__queryTransactionTool\` directly if Herd MCP is connected.`,
       }],
       isError: true,
     };
