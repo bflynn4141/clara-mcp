@@ -278,7 +278,7 @@ function startHealthChecks(): void {
  */
 export async function initHerd(config?: Partial<HerdConfig>): Promise<boolean> {
   if (process.env.HERD_ENABLED !== 'true') {
-    console.log('Herd provider disabled (HERD_ENABLED != true)');
+    console.error('Herd provider disabled (HERD_ENABLED != true)');
     return false;
   }
 
@@ -293,7 +293,7 @@ export async function initHerd(config?: Partial<HerdConfig>): Promise<boolean> {
         throw new Error('HERD_API_URL is required for HTTP mode');
       }
 
-      console.log(`Connecting to Herd API: ${herdConfig.apiUrl}`);
+      console.error(`Connecting to Herd API: ${herdConfig.apiUrl}`);
 
       transport = new StreamableHTTPClientTransport(
         new URL(herdConfig.apiUrl),
@@ -306,7 +306,7 @@ export async function initHerd(config?: Partial<HerdConfig>): Promise<boolean> {
         }
       );
     } else {
-      console.log(`Starting Herd MCP: ${herdConfig.command} ${herdConfig.args.join(' ')}`);
+      console.error(`Starting Herd MCP: ${herdConfig.command} ${herdConfig.args.join(' ')}`);
 
       transport = new StdioClientTransport({
         command: herdConfig.command,
@@ -339,7 +339,7 @@ export async function initHerd(config?: Partial<HerdConfig>): Promise<boolean> {
     // Start periodic health checks
     startHealthChecks();
 
-    console.log(`✓ Herd MCP client connected via ${herdConfig.transportMode.toUpperCase()}`);
+    console.error(`✓ Herd MCP client connected via ${herdConfig.transportMode.toUpperCase()}`);
     return true;
   } catch (error) {
     console.error('Failed to connect to Herd MCP:', error);
@@ -742,7 +742,7 @@ export class HerdContractIntelProvider implements ContractIntelProvider {
     // This means we might miss cache for upgraded proxies, but it's safer
     const cached = getCachedMetadata(chainId, params.address, blockTag);
     if (cached) {
-      console.log(`Cache hit for ${params.address} on ${params.chain} (${cached.fromCache})`);
+      console.error(`Cache hit for ${params.address} on ${params.chain} (${cached.fromCache})`);
 
       // Apply detail level filtering to cached data
       let data = cached.data;

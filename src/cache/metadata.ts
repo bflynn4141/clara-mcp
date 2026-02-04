@@ -346,7 +346,7 @@ function evictOldFiles(): void {
       if (freedSize >= targetFree) break;
       unlinkSync(file.path);
       freedSize += file.stat.size;
-      console.log(`Cache evicted: ${file.name} (${file.stat.size} bytes)`);
+      console.error(`Cache evicted: ${file.name} (${file.stat.size} bytes)`);
     }
   } catch (error) {
     console.error('Error evicting cache files:', error);
@@ -419,7 +419,7 @@ function readFromFileCache(key: string): CacheEntry | null {
 export function initCache(customConfig?: Partial<CacheConfig>): void {
   config = { ...DEFAULT_CONFIG, ...customConfig };
   ensureCacheDir();
-  console.log(`✓ Metadata cache initialized at ${config.cacheDir}`);
+  console.error(`✓ Metadata cache initialized at ${config.cacheDir}`);
 }
 
 /**
@@ -507,7 +507,7 @@ export function cacheMetadata(
   // Store in file cache (async-ish, fire and forget)
   setImmediate(() => writeToFileCache(key, entry));
 
-  console.log(`Cached metadata for ${address} on chain ${chainId} (${(size / 1024).toFixed(1)}KB)`);
+  console.error(`Cached metadata for ${address} on chain ${chainId} (${(size / 1024).toFixed(1)}KB)`);
 
   return summary;
 }

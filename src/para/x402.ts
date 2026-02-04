@@ -55,7 +55,7 @@ function getTokenDomain(
   // Fall back to known token domains
   const knownDomain = KNOWN_TOKEN_DOMAINS[token.toLowerCase()];
   if (knownDomain) {
-    console.log(`[x402] Using known token domain for ${token.slice(0, 10)}...`);
+    console.error(`[x402] Using known token domain for ${token.slice(0, 10)}...`);
     return knownDomain;
   }
 
@@ -650,7 +650,7 @@ export class X402Client {
         verifyingContract: details.token,
       };
 
-      console.log(`[x402] Signing v2 EIP-3009 with domain: ${tokenDomain.name} v${tokenDomain.version}`);
+      console.error(`[x402] Signing v2 EIP-3009 with domain: ${tokenDomain.name} v${tokenDomain.version}`);
 
       const signature = await this.signTypedData(
         domain,
@@ -672,7 +672,7 @@ export class X402Client {
     }
 
     // v1: Use custom Payment type (legacy)
-    console.log('[x402] Signing v1 legacy format');
+    console.error('[x402] Signing v1 legacy format');
     const domain = {
       ...X402_DOMAIN,
       chainId: details.chainId,

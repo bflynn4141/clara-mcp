@@ -298,7 +298,7 @@ export async function handleMonitorEvents(
 
         // Show what events are available
         const availableEvents = metadataResult.data.events.map(e => e.name).slice(0, 5);
-        console.log(`Using default event: ${firstEvent.name}. Available: ${availableEvents.join(', ')}`);
+        console.error(`Using default event: ${firstEvent.name}. Available: ${availableEvents.join(', ')}`);
       } else {
         return {
           content: [{

@@ -43,7 +43,7 @@ let initialized = false;
  */
 export async function initProviders(): Promise<void> {
   if (initialized) {
-    console.log('Providers already initialized');
+    console.error('Providers already initialized');
     return;
   }
 
@@ -58,7 +58,7 @@ export async function initProviders(): Promise<void> {
   // Register Zerion (History)
   // -------------------------------------------------------------------------
   registry.registerHistoryProvider(zerionProvider);
-  console.log('✓ Zerion history provider registered');
+  console.error('✓ Zerion history provider registered');
 
   // -------------------------------------------------------------------------
   // Register Herd (Analysis, Intel, Events, Research)
@@ -110,16 +110,16 @@ export async function initProviders(): Promise<void> {
       priority: 1,
     });
 
-    console.log('✓ Herd providers registered (ethereum, base)');
+    console.error('✓ Herd providers registered (ethereum, base)');
   } else {
-    console.log('⚠ Herd not available - using fallbacks only');
+    console.error('⚠ Herd not available - using fallbacks only');
   }
 
   // -------------------------------------------------------------------------
   // Log Provider Status
   // -------------------------------------------------------------------------
   const status = registry.getStatus();
-  console.log('Provider status:', JSON.stringify(status.providers, null, 2));
+  console.error('Provider status:', JSON.stringify(status.providers, null, 2));
 
   initialized = true;
 }
@@ -131,7 +131,7 @@ export async function shutdownProviders(): Promise<void> {
   await shutdownHerd();
   ProviderRegistry.resetInstance();
   initialized = false;
-  console.log('Providers shutdown');
+  console.error('Providers shutdown');
 }
 
 /**
