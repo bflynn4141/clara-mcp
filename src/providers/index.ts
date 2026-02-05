@@ -30,6 +30,7 @@ import {
   herdContractIntelProvider,
   herdEventMonitorProvider,
   herdResearchProvider,
+  herdTokenDiscoveryProvider,
 } from './herd.js';
 
 // ============================================================================
@@ -71,6 +72,7 @@ export async function initProviders(): Promise<void> {
     registry.registerContractIntelProvider(herdContractIntelProvider);
     registry.registerEventMonitorProvider(herdEventMonitorProvider);
     registry.registerResearchProvider(herdResearchProvider);
+    registry.registerTokenDiscoveryProvider(herdTokenDiscoveryProvider);
 
     // Update chain support matrix to prefer Herd for supported chains
     registry.addChainSupport({
@@ -109,6 +111,12 @@ export async function initProviders(): Promise<void> {
       chains: ['ethereum', 'base'],
       priority: 1,
     });
+    registry.addChainSupport({
+      provider: 'herd',
+      capability: 'TokenDiscovery',
+      chains: ['ethereum', 'base'],
+      priority: 1,
+    });
 
     console.error('✓ Herd providers registered (ethereum, base)');
   } else {
@@ -141,6 +149,27 @@ export function isProvidersInitialized(): boolean {
   return initialized;
 }
 
+/**
+ * Wait for providers to initialize (with timeout)
+ *
+ * Use this in tools that need providers but might be called
+ * immediately after server startup (before initProviders completes).
+ *
+ * @param timeoutMs - Maximum time to wait (default: 3000ms)
+ * @returns true if initialized, false if timeout reached
+ */
+export async function waitForProviders(timeoutMs = 3000): Promise<boolean> {
+  if (initialized) return true;
+
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (initialized) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  return initialized;
+}
+
 // ============================================================================
 // Convenience Exports
 // ============================================================================
@@ -159,6 +188,7 @@ export {
   herdContractIntelProvider,
   herdEventMonitorProvider,
   herdResearchProvider,
+  herdTokenDiscoveryProvider,
 } from './herd.js';
 
 // Re-export cache utilities

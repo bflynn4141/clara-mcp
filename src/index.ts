@@ -52,6 +52,7 @@ import {
   handleWalletToolRequest,
 } from './tools/wallet.js';
 import { balanceToolDefinition, handleBalanceRequest } from './tools/balance.js';
+import { dashboardToolDefinition, handleDashboardRequest } from './tools/dashboard.js';
 import { historyToolDefinition, handleHistoryRequest } from './tools/history.js';
 import { sendToolDefinition, handleSendRequest } from './tools/send.js';
 import {
@@ -110,6 +111,39 @@ import {
   handleExecuteRequest,
 } from './tools/execute.js';
 
+// PRD P0/P1 tools (session, auth, tx, reads)
+import {
+  sessionStatusToolDefinition,
+  handleSessionStatusRequest,
+} from './tools/session-status.js';
+import {
+  debugAuthToolDefinition,
+  handleDebugAuthRequest,
+} from './tools/debug-auth.js';
+import {
+  sendTransactionToolDefinition,
+  handleSendTransactionRequest,
+} from './tools/send-transaction.js';
+import {
+  ethCallToolDefinition,
+  chainCallToolDefinition,
+  handleEthCallRequest,
+} from './tools/eth-call.js';
+import {
+  swapToolDefinition,
+  handleSwapRequest,
+} from './tools/swap.js';
+
+// Two-phase contract execution (wallet_call + wallet_executePrepared)
+import {
+  callToolDefinition,
+  handleCallRequest,
+} from './tools/call.js';
+import {
+  executePreparedToolDefinition,
+  handleExecutePreparedRequest,
+} from './tools/execute-prepared.js';
+
 /**
  * All available tools
  */
@@ -119,6 +153,7 @@ const TOOLS = [
   statusToolDefinition,
   logoutToolDefinition,
   // Wallet Operations
+  dashboardToolDefinition,
   balanceToolDefinition,
   historyToolDefinition,
   sendToolDefinition,
@@ -150,6 +185,17 @@ const TOOLS = [
   opportunitiesToolDefinition,
   briefingToolDefinition,
   executeToolDefinition,
+  // PRD P0/P1 tools (session, auth, tx, reads)
+  sessionStatusToolDefinition,
+  debugAuthToolDefinition,
+  sendTransactionToolDefinition,
+  ethCallToolDefinition,
+  chainCallToolDefinition,
+  // DeFi tools (migrated from para-wallet)
+  swapToolDefinition,
+  // Two-phase contract execution
+  callToolDefinition,
+  executePreparedToolDefinition,
 ];
 
 /**
@@ -184,6 +230,11 @@ function createServer(): Server {
       const walletResult = await handleWalletToolRequest(name, args as Record<string, unknown>);
       if (walletResult) {
         return walletResult;
+      }
+
+      // Handle dashboard
+      if (name === 'wallet_dashboard') {
+        return await handleDashboardRequest(args as Record<string, unknown>);
       }
 
       // Handle balance
@@ -274,6 +325,31 @@ function createServer(): Server {
       }
       if (name === 'wallet_execute') {
         return await handleExecuteRequest(args as Record<string, unknown>);
+      }
+
+      // Handle PRD P0/P1 tools (session, auth, tx, reads)
+      if (name === 'wallet_session_status') {
+        return await handleSessionStatusRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_debug_auth') {
+        return await handleDebugAuthRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_send_transaction') {
+        return await handleSendTransactionRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_eth_call' || name === 'wallet_chain_call') {
+        return await handleEthCallRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_swap') {
+        return await handleSwapRequest(args as Record<string, unknown>);
+      }
+
+      // Handle two-phase contract execution
+      if (name === 'wallet_call') {
+        return await handleCallRequest(args as Record<string, unknown>);
+      }
+      if (name === 'wallet_executePrepared') {
+        return await handleExecutePreparedRequest(args as Record<string, unknown>);
       }
 
       // Handle x402 payment tool
@@ -517,17 +593,25 @@ async function handleX402Payment(
 
 /**
  * Main entry point
+ *
+ * IMPORTANT: Connect to stdio FIRST, then initialize providers.
+ * This ensures Claude Code receives the tool list immediately,
+ * even if provider initialization is slow (network calls, etc.).
  */
 async function main(): Promise<void> {
-  // Initialize providers (Zerion, Herd, etc.)
-  await initProviders();
-
   const server = createServer();
   const transport = new StdioServerTransport();
 
+  // Connect FIRST so Claude Code gets tools immediately
   await server.connect(transport);
-
   console.error('Clara MCP Server running on stdio');
+
+  // Initialize providers in background (non-blocking)
+  // Tools that need providers will check isProvidersInitialized()
+  initProviders().catch((error) => {
+    console.error('Provider initialization error:', error);
+    // Don't exit - core wallet tools still work without providers
+  });
 }
 
 main().catch((error) => {
