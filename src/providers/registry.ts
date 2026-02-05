@@ -24,16 +24,8 @@ import type {
   ContractIntelProvider,
   ContractMetadataParams,
   ContractMetadata,
-  CodeSearchParams,
-  CodeSearchResult,
-  ContractDiffParams,
-  ContractDiff,
-  EventMonitorProvider,
-  EventMonitorParams,
-  EventOccurrence,
-  ResearchProvider,
-  ResearchParams,
-  ResearchResult,
+  TokenDiscoveryProvider,
+  TokenDiscoveryResult,
 } from './types.js';
 
 // ============================================================================
@@ -55,21 +47,12 @@ export interface ProviderChainSupport {
  * This is configured at startup and can be modified
  */
 const DEFAULT_CHAIN_SUPPORT: ProviderChainSupport[] = [
-  // Herd - primary for ETH/Base analysis (to be enabled when integrated)
-  // { provider: 'herd', capability: 'TxAnalysis', chains: ['ethereum', 'base'], priority: 1 },
-  // { provider: 'herd', capability: 'ContractMetadata', chains: ['ethereum', 'base'], priority: 1 },
-  // { provider: 'herd', capability: 'CodeSearch', chains: ['ethereum', 'base'], priority: 1 },
-  // { provider: 'herd', capability: 'EventMonitor', chains: ['ethereum', 'base'], priority: 1 },
-  // { provider: 'herd', capability: 'ContractDiff', chains: ['ethereum', 'base'], priority: 1 },
-  // { provider: 'herd', capability: 'Research', chains: ['ethereum', 'base'], priority: 1 },
-
   // Zerion - history listing across all chains
   { provider: 'zerion', capability: 'HistoryList', chains: ['ethereum', 'base', 'arbitrum', 'optimism', 'polygon'], priority: 1 },
 
   // RPC - fallback for basic operations
   { provider: 'rpc', capability: 'TxAnalysis', chains: ['ethereum', 'base', 'arbitrum', 'optimism', 'polygon'], priority: 10 },
   { provider: 'rpc', capability: 'ContractMetadata', chains: ['ethereum', 'base', 'arbitrum', 'optimism', 'polygon'], priority: 10 },
-  { provider: 'rpc', capability: 'EventMonitor', chains: ['ethereum', 'base', 'arbitrum', 'optimism', 'polygon'], priority: 10 },
 ];
 
 // ============================================================================
@@ -82,8 +65,7 @@ export class ProviderRegistry {
   private historyProviders: Map<string, HistoryProvider> = new Map();
   private txAnalysisProviders: Map<string, TxAnalysisProvider> = new Map();
   private contractIntelProviders: Map<string, ContractIntelProvider> = new Map();
-  private eventMonitorProviders: Map<string, EventMonitorProvider> = new Map();
-  private researchProviders: Map<string, ResearchProvider> = new Map();
+  private tokenDiscoveryProviders: Map<string, TokenDiscoveryProvider> = new Map();
 
   private chainSupport: ProviderChainSupport[] = [...DEFAULT_CHAIN_SUPPORT];
 
@@ -122,12 +104,8 @@ export class ProviderRegistry {
     this.contractIntelProviders.set(provider.name, provider);
   }
 
-  registerEventMonitorProvider(provider: EventMonitorProvider): void {
-    this.eventMonitorProviders.set(provider.name, provider);
-  }
-
-  registerResearchProvider(provider: ResearchProvider): void {
-    this.researchProviders.set(provider.name, provider);
+  registerTokenDiscoveryProvider(provider: TokenDiscoveryProvider): void {
+    this.tokenDiscoveryProviders.set(provider.name, provider);
   }
 
   /**
@@ -195,13 +173,9 @@ export class ProviderRegistry {
       case 'TxAnalysis':
         return this.txAnalysisProviders;
       case 'ContractMetadata':
-      case 'CodeSearch':
-      case 'ContractDiff':
         return this.contractIntelProviders;
-      case 'EventMonitor':
-        return this.eventMonitorProviders;
-      case 'Research':
-        return this.researchProviders;
+      case 'TokenDiscovery':
+        return this.tokenDiscoveryProviders;
       default:
         return new Map();
     }
@@ -327,79 +301,24 @@ export class ProviderRegistry {
   }
 
   /**
-   * Search contract code
+   * Discover all tokens held by an address
    */
-  async searchCode(params: CodeSearchParams): Promise<ProviderResult<CodeSearchResult[]>> {
-    const found = this.findProvider<ContractIntelProvider>('CodeSearch', params.chain, this.contractIntelProviders);
-
-    if (!found || !found.provider.searchCode) {
-      const supportedChains = this.getSupportedChains('CodeSearch');
-      return {
-        success: false,
-        error: `Code search not available for ${params.chain}. Supported chains: ${supportedChains.join(', ')}`,
-        provider: 'none',
-        level: 'unavailable',
-      };
-    }
-
-    return found.provider.searchCode(params);
-  }
-
-  /**
-   * Diff contract versions
-   */
-  async diffContractVersions(params: ContractDiffParams): Promise<ProviderResult<ContractDiff[]>> {
-    const found = this.findProvider<ContractIntelProvider>('ContractDiff', params.chain, this.contractIntelProviders);
-
-    if (!found || !found.provider.diffVersions) {
-      const supportedChains = this.getSupportedChains('ContractDiff');
-      return {
-        success: false,
-        error: `Contract diff not available for ${params.chain}. Supported chains: ${supportedChains.join(', ')}`,
-        provider: 'none',
-        level: 'unavailable',
-      };
-    }
-
-    return found.provider.diffVersions(params);
-  }
-
-  /**
-   * Get recent events
-   */
-  async getRecentEvents(params: EventMonitorParams): Promise<ProviderResult<EventOccurrence[]>> {
-    const found = this.findProvider<EventMonitorProvider>('EventMonitor', params.filter.chain, this.eventMonitorProviders);
+  async discoverTokens(
+    address: string,
+    chain: SupportedChain
+  ): Promise<ProviderResult<TokenDiscoveryResult>> {
+    const found = this.findProvider<TokenDiscoveryProvider>('TokenDiscovery', chain, this.tokenDiscoveryProviders);
 
     if (!found) {
-      const supportedChains = this.getSupportedChains('EventMonitor');
       return {
         success: false,
-        error: `Event monitoring not available for ${params.filter.chain}. Supported chains: ${supportedChains.join(', ')}`,
+        error: `Token discovery not available for ${chain}`,
         provider: 'none',
         level: 'unavailable',
       };
     }
 
-    return found.provider.getRecentEvents(params);
-  }
-
-  /**
-   * Research a blockchain question
-   */
-  async research(params: ResearchParams): Promise<ProviderResult<ResearchResult>> {
-    // Research is not chain-specific, find any available provider
-    const provider = Array.from(this.researchProviders.values())[0];
-
-    if (!provider) {
-      return {
-        success: false,
-        error: 'No research provider available',
-        provider: 'none',
-        level: 'unavailable',
-      };
-    }
-
-    return provider.research(params);
+    return found.provider.discoverTokens(address, chain);
   }
 
   // ==========================================================================
@@ -414,8 +333,7 @@ export class ProviderRegistry {
       history: string[];
       txAnalysis: string[];
       contractIntel: string[];
-      eventMonitor: string[];
-      research: string[];
+      tokenDiscovery: string[];
     };
     chainSupport: ProviderChainSupport[];
   } {
@@ -424,8 +342,7 @@ export class ProviderRegistry {
         history: Array.from(this.historyProviders.keys()),
         txAnalysis: Array.from(this.txAnalysisProviders.keys()),
         contractIntel: Array.from(this.contractIntelProviders.keys()),
-        eventMonitor: Array.from(this.eventMonitorProviders.keys()),
-        research: Array.from(this.researchProviders.keys()),
+        tokenDiscovery: Array.from(this.tokenDiscoveryProviders.keys()),
       },
       chainSupport: this.chainSupport,
     };

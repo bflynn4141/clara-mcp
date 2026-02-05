@@ -2,7 +2,7 @@
 /**
  * Clara MCP Smoke Test
  *
- * Tests all 32 tools for basic functionality.
+ * Tests all 15 tools for basic functionality.
  * Safe to run with a real wallet - only uses read-only operations
  * or quote-only modes for transaction tools.
  *
@@ -43,19 +43,17 @@ function fail(msg: string): never {
 }
 
 /**
- * All 32 Clara tools organized by safety level
+ * All 15 Clara tools organized by safety level
  */
 const TOOLS = {
   // Safe read-only tools
   readOnly: [
     { name: "wallet_status", args: {} },
-    { name: "wallet_balance", args: { chain: "base" } },
     { name: "wallet_approvals", args: { chain: "base" } },
     { name: "wallet_spending_limits", args: { action: "view" } },
-    { name: "wallet_spending_history", args: { days: 7 } },
-    { name: "wallet_discover_x402", args: { query: "ai" } },
-    { name: "wallet_browse_x402", args: { category: "ai", limit: 5 } },
-    { name: "wallet_decode_tx", args: { data: "0xa9059cbb0000000000000000000000000000000000000000000000000000000000000001" } },
+    // wallet_analyze_contract tested conditionally below
+    // Only test if Herd is enabled
+    ...(process.env.HERD_ENABLED === "true" ? [{ name: "wallet_analyze_contract", args: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", chain: "base" } }] : []),
     // Only test history if API key is present
     ...(process.env.ZERION_API_KEY ? [{ name: "wallet_history", args: { days: 7 } }] : []),
   ],
@@ -63,25 +61,10 @@ const TOOLS = {
   // Slow tools (30s timeout)
   slow: [
     { name: "wallet_dashboard", args: {} },
-    { name: "wallet_discover_tokens", args: { chain: "base" } },
   ],
 
   // Safe simulation/signing (no real tx)
-  simulation: [
-    {
-      name: "wallet_simulate",
-      args: {
-        to: TEST_ADDRESS,
-        data: "0x",
-        chain: "base",
-        value: "0"
-      }
-    },
-    {
-      name: "wallet_sign_message",
-      args: { message: "Clara smoke test" }
-    },
-  ],
+  simulation: [] as Array<{ name: string; args: Record<string, any> }>,
 
   // Quote-only mode (safe - no actual transactions)
   quoteOnly: [
@@ -89,32 +72,20 @@ const TOOLS = {
       name: "wallet_swap",
       args: { fromToken: "ETH", toToken: "USDC", amount: "0.001", chain: "base", action: "quote" }
     },
-    {
-      name: "wallet_bridge",
-      args: { fromToken: "ETH", toToken: "ETH", amount: "0.001", fromChain: "base", toChain: "arbitrum", action: "quote" }
-    },
   ],
 
-  // Skipped - would move funds or require specific state
+  // Skipped - would move funds, require specific state, or don't exist in server
   skipped: [
     { name: "wallet_setup", reason: "tested separately if needed" },
     { name: "wallet_logout", reason: "would break session" },
     { name: "wallet_send", reason: "would send real funds" },
-    { name: "wallet_earn", reason: "would stake funds" },
-    { name: "wallet_cancel", reason: "needs pending tx" },
-    { name: "wallet_speed_up", reason: "needs pending tx" },
     { name: "wallet_pay_x402", reason: "would spend funds" },
-    { name: "wallet_sign_typed_data", reason: "needs valid typed data" },
-    { name: "wallet_token_details", reason: "needs valid token address" },
-    { name: "wallet_cca_bid", reason: "would bid real funds" },
-    { name: "wallet_cca_exit", reason: "needs active bid" },
-    { name: "wallet_cca_claim", reason: "needs claimable bid" },
-    { name: "wallet_stake", reason: "would stake funds" },
-    { name: "wallet_unstake", reason: "needs staked position" },
-    { name: "wallet_claim_dividends", reason: "needs claimable dividends" },
-    { name: "wallet_distribute_revenue", reason: "would send funds" },
-    // ENS requires CCIP-Read which fails with free public RPCs
-    { name: "wallet_resolve_ens", reason: "needs paid Ethereum RPC for CCIP-Read" },
+    { name: "wallet_sign_message", reason: "requires active proxy session with X-Clara-Address header" },
+    { name: "wallet_sign_typed_data", reason: "requires valid typed data and proxy session" },
+    { name: "wallet_call", reason: "prepares a contract call, needs valid contract target" },
+    { name: "wallet_executePrepared", reason: "needs a preparedTxId from wallet_call" },
+    // Conditionally skip if Herd not enabled
+    ...(process.env.HERD_ENABLED === "true" ? [] : [{ name: "wallet_analyze_contract", reason: "needs HERD_ENABLED=true env var" }]),
     // Conditionally skip if no API key
     ...(process.env.ZERION_API_KEY ? [] : [{ name: "wallet_history", reason: "needs ZERION_API_KEY env var" }]),
   ],
@@ -217,6 +188,23 @@ async function main() {
     const { tools } = await client.send("tools/list", {});
     console.log(`Found ${tools.length} tools\n`);
 
+    // --- Drift detection ---
+    const serverToolNames = new Set(tools.map((t: any) => t.name));
+    const testToolNames = new Set([
+      ...TOOLS.readOnly.map(t => t.name),
+      ...TOOLS.slow.map(t => t.name),
+      ...TOOLS.simulation.map(t => t.name),
+      ...TOOLS.quoteOnly.map(t => t.name),
+      ...TOOLS.skipped.map(t => t.name),
+    ]);
+
+    const untested = [...serverToolNames].filter(n => !testToolNames.has(n));
+    const missing = [...testToolNames].filter(n => !serverToolNames.has(n));
+
+    if (untested.length) console.log(`${YELLOW}WARNING${RESET}: Untested tools (in server but not in test): ${untested.join(', ')}`);
+    if (missing.length) console.log(`${YELLOW}WARNING${RESET}: Test references missing tools (in test but not in server): ${missing.join(', ')}`);
+    if (untested.length || missing.length) console.log("");
+
     // Helper to extract error message from result
     const getErrorText = (result: any): string => {
       if (result?.content?.[0]?.text) {
@@ -271,20 +259,22 @@ async function main() {
     }
 
     // Test simulation tools
-    console.log("\n--- Simulation Tools ---");
-    for (const tool of TOOLS.simulation) {
-      try {
-        const result = await client.callTool(tool.name, tool.args);
-        if (result?.isError) {
-          log("FAIL", tool.name, getErrorText(result));
+    if (TOOLS.simulation.length > 0) {
+      console.log("\n--- Simulation Tools ---");
+      for (const tool of TOOLS.simulation) {
+        try {
+          const result = await client.callTool(tool.name, tool.args);
+          if (result?.isError) {
+            log("FAIL", tool.name, getErrorText(result));
+            failed++;
+          } else {
+            log("PASS", tool.name);
+            passed++;
+          }
+        } catch (e: any) {
+          log("FAIL", tool.name, e.message);
           failed++;
-        } else {
-          log("PASS", tool.name);
-          passed++;
         }
-      } catch (e: any) {
-        log("FAIL", tool.name, e.message);
-        failed++;
       }
     }
 
@@ -309,7 +299,7 @@ async function main() {
       }
     }
 
-    // Test quote-only tools (currently disabled)
+    // Test quote-only tools
     if (TOOLS.quoteOnly.length > 0) {
       console.log("\n--- Quote-Only Tools ---");
       for (const tool of TOOLS.quoteOnly) {
@@ -340,6 +330,14 @@ async function main() {
     console.log("\n====================");
     console.log(`Results: ${GREEN}${passed} passed${RESET}, ${RED}${failed} failed${RESET}, ${YELLOW}${skipped} skipped${RESET}`);
     console.log(`Total: ${passed + failed + skipped} tools\n`);
+
+    // Drift summary
+    if (untested.length || missing.length) {
+      console.log(`${YELLOW}DRIFT DETECTED${RESET}: Run with updated TOOLS config to fix.`);
+      if (untested.length) console.log(`  Add to test: ${untested.join(', ')}`);
+      if (missing.length) console.log(`  Remove from test: ${missing.join(', ')}`);
+      console.log("");
+    }
 
     client.close();
     process.exit(failed > 0 ? 1 : 0);

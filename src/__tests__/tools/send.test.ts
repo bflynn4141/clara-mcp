@@ -23,6 +23,19 @@ vi.mock('../../config/tokens.js', () => ({
   resolveToken: vi.fn(),
 }));
 
+// Mock spending limits
+vi.mock('../../storage/spending.js', () => ({
+  checkSpendingLimits: vi.fn(() => ({ allowed: true })),
+  recordSpending: vi.fn(),
+}));
+
+// Mock risk assessment
+vi.mock('../../services/risk.js', () => ({
+  assessContractRisk: vi.fn(),
+  formatRiskAssessment: vi.fn(() => []),
+  quickSafeCheck: vi.fn(() => true),
+}));
+
 import { getSession, touchSession } from '../../storage/session.js';
 import { signAndSendTransaction } from '../../para/transactions.js';
 import { resolveToken } from '../../config/tokens.js';

@@ -6,8 +6,6 @@
  *
  * Uses:
  * - Herd contractMetadataTool for ABI and metadata
- * - Herd regexCodeAnalysisTool for code search (optional)
- * - Herd diffContractVersions for upgrade history (if proxy)
  */
 
 import { getProviderRegistry, type ContractMetadata, type ContractMetadataSummary } from '../providers/index.js';

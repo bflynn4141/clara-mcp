@@ -250,6 +250,9 @@ export interface WalletStatus {
  *
  * If email is provided, creates/restores a portable wallet.
  * Otherwise creates a machine-specific wallet.
+ *
+ * Handles the case where a wallet already exists for the email:
+ * - 409 response → fetch existing wallet and reconnect
  */
 export async function setupWallet(email?: string): Promise<SetupResult> {
   // Check for existing session
@@ -262,16 +265,25 @@ export async function setupWallet(email?: string): Promise<SetupResult> {
     };
   }
 
-  // Create new wallet via proxy
+  const identifier = email || `machine:${process.env.USER || 'claude'}:${Date.now()}`;
+  const identifierType = email ? 'EMAIL' : 'CUSTOM_ID';
+
+  // Try to create new wallet via proxy
   const response = await fetch(`${CLARA_PROXY}/api/v1/wallets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       type: 'EVM',
-      userIdentifier: email || `machine:${process.env.USER || 'claude'}:${Date.now()}`,
-      userIdentifierType: email ? 'EMAIL' : 'CUSTOM_ID',
+      userIdentifier: identifier,
+      userIdentifierType: identifierType,
     }),
   });
+
+  // Handle 409 Conflict - wallet already exists, try to reconnect
+  if (response.status === 409 && email) {
+    console.error('[clara] Wallet exists for email, attempting to reconnect...');
+    return await reconnectExistingWallet(email);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -301,6 +313,118 @@ export async function setupWallet(email?: string): Promise<SetupResult> {
 
   return {
     isNew: true,
+    address: wallet.address,
+    email,
+  };
+}
+
+/**
+ * Reconnect to an existing wallet by email
+ *
+ * Used when wallet_setup detects a 409 (wallet already exists).
+ * Fetches wallet info from Para API and saves a new session.
+ */
+async function reconnectExistingWallet(email: string): Promise<SetupResult> {
+  // Use the lookup endpoint to get wallet by email
+  const lookupResponse = await fetch(
+    `${CLARA_PROXY}/api/v1/wallets/lookup?` +
+      new URLSearchParams({
+        userIdentifier: email,
+        userIdentifierType: 'EMAIL',
+        walletType: 'EVM',
+      }),
+    {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
+  if (!lookupResponse.ok) {
+    // If lookup fails, try listing all wallets as fallback
+    console.error('[clara] Lookup failed, trying list endpoint...');
+    return await reconnectViaWalletList(email);
+  }
+
+  const data = await lookupResponse.json() as {
+    wallet?: { id: string; address: string };
+    wallets?: Array<{ id: string; address: string }>;
+  };
+
+  const wallet = data.wallet || data.wallets?.[0];
+  if (!wallet) {
+    throw new Error('Could not find existing wallet for email. Try wallet_restore instead.');
+  }
+
+  // Save session with reconnected wallet
+  await saveSession({
+    authenticated: true,
+    walletId: wallet.id,
+    address: wallet.address,
+    email,
+    chains: ['EVM'],
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  });
+
+  console.error(`[clara] Reconnected to existing wallet: ${wallet.address}`);
+
+  return {
+    isNew: false,
+    address: wallet.address,
+    email,
+  };
+}
+
+/**
+ * Fallback: reconnect by listing all wallets
+ *
+ * Some Para API versions may not have the /lookup endpoint.
+ * This fetches all wallets and finds the one we need.
+ */
+async function reconnectViaWalletList(email: string): Promise<SetupResult> {
+  const listResponse = await fetch(`${CLARA_PROXY}/api/v1/wallets`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!listResponse.ok) {
+    throw new Error(
+      `Cannot reconnect to existing wallet. ` +
+        `The wallet for ${email} exists but we cannot retrieve it. ` +
+        `Try clearing the session and using wallet_restore with your email.`
+    );
+  }
+
+  const data = await listResponse.json() as {
+    wallets?: Array<{ id: string; address: string; email?: string }>;
+  };
+
+  // Find wallet by email or just use the first EVM wallet
+  // (Para typically associates one wallet per email)
+  const wallet = data.wallets?.find((w) => w.email === email) || data.wallets?.[0];
+
+  if (!wallet) {
+    throw new Error(
+      `Wallet exists for ${email} but could not be retrieved. ` +
+        `Please contact support or try wallet_restore.`
+    );
+  }
+
+  // Save session
+  await saveSession({
+    authenticated: true,
+    walletId: wallet.id,
+    address: wallet.address,
+    email,
+    chains: ['EVM'],
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  });
+
+  console.error(`[clara] Reconnected to wallet via list: ${wallet.address}`);
+
+  return {
+    isNew: false,
     address: wallet.address,
     email,
   };

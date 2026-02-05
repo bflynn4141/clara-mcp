@@ -16,3 +16,13 @@ export {
   extractSummary,
   type ContractMetadataSummary,
 } from './metadata.js';
+
+export {
+  cacheQuote,
+  getCachedQuote,
+  markQuoteConsumed,
+  cleanExpiredQuotes,
+  getQuoteCacheStats,
+  type HerdCheckResult,
+  type GetCachedQuoteResult,
+} from './quotes.js';

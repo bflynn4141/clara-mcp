@@ -24,7 +24,39 @@ vi.mock('../../storage/spending.js', () => ({
   formatSpendingSummary: vi.fn(() => 'Per-operation: $0.10 max | Daily: $1.00 max'),
 }));
 
+// Mock session storage
+vi.mock('../../storage/session.js', () => ({
+  getSession: vi.fn(),
+  touchSession: vi.fn(),
+}));
+
+// Mock identity resolution
+vi.mock('../../identity/resolved-identity.js', () => ({
+  resolveIdentity: vi.fn(() => ({ success: false })),
+  SUPPORTED_CHAIN_IDS: [1, 8453, 42161, 10, 137],
+  CHAIN_NAMES: { 1: 'ethereum', 8453: 'base', 42161: 'arbitrum', 10: 'optimism', 137: 'polygon' },
+  DEFAULT_CHAIN_ID: 8453,
+}));
+
+// Mock para transactions (for getParaApiBase)
+vi.mock('../../para/transactions.js', () => ({
+  getParaApiBase: vi.fn(() => 'https://api.para.test'),
+  signAndSendTransaction: vi.fn(),
+}));
+
+// Mock viem (for credits section RPC calls)
+vi.mock('viem', async () => {
+  const actual = await vi.importActual('viem');
+  return {
+    ...actual,
+    createPublicClient: vi.fn(() => ({
+      readContract: vi.fn().mockResolvedValue(0n),
+    })),
+  };
+});
+
 import { setupWallet, getWalletStatus, logout } from '../../para/client.js';
+import { getSession, touchSession } from '../../storage/session.js';
 
 describe('Wallet Tools', () => {
   beforeEach(() => {
@@ -117,6 +149,13 @@ describe('Wallet Tools', () => {
           sessionAge: '2 hours',
           chains: ['base', 'ethereum'],
         });
+        // Mock session with createdAt 2 hours ago so formatDuration produces "2h 0m"
+        vi.mocked(getSession).mockResolvedValue({
+          authenticated: true,
+          address: '0x1234567890123456789012345678901234567890',
+          walletId: 'test-wallet-id',
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        });
 
         const result = await handleWalletToolRequest('wallet_status', {});
 
@@ -124,7 +163,7 @@ describe('Wallet Tools', () => {
         expect(result?.content[0].text).toContain('Wallet Active');
         expect(result?.content[0].text).toContain('0x1234567890123456789012345678901234567890');
         expect(result?.content[0].text).toContain('test@example.com');
-        expect(result?.content[0].text).toContain('2 hours');
+        expect(result?.content[0].text).toContain('2h');
       });
 
       it('handles unauthenticated state', async () => {

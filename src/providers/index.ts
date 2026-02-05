@@ -28,8 +28,6 @@ import {
   isHerdSupportedChain,
   herdTxAnalysisProvider,
   herdContractIntelProvider,
-  herdEventMonitorProvider,
-  herdResearchProvider,
   herdTokenDiscoveryProvider,
 } from './herd.js';
 
@@ -62,7 +60,7 @@ export async function initProviders(): Promise<void> {
   console.error('✓ Zerion history provider registered');
 
   // -------------------------------------------------------------------------
-  // Register Herd (Analysis, Intel, Events, Research)
+  // Register Herd (Analysis, Intel, TokenDiscovery)
   // -------------------------------------------------------------------------
   const herdReady = await initHerd();
 
@@ -70,8 +68,6 @@ export async function initProviders(): Promise<void> {
     // Register Herd providers
     registry.registerTxAnalysisProvider(herdTxAnalysisProvider);
     registry.registerContractIntelProvider(herdContractIntelProvider);
-    registry.registerEventMonitorProvider(herdEventMonitorProvider);
-    registry.registerResearchProvider(herdResearchProvider);
     registry.registerTokenDiscoveryProvider(herdTokenDiscoveryProvider);
 
     // Update chain support matrix to prefer Herd for supported chains
@@ -84,30 +80,6 @@ export async function initProviders(): Promise<void> {
     registry.addChainSupport({
       provider: 'herd',
       capability: 'ContractMetadata',
-      chains: ['ethereum', 'base'],
-      priority: 1,
-    });
-    registry.addChainSupport({
-      provider: 'herd',
-      capability: 'CodeSearch',
-      chains: ['ethereum', 'base'],
-      priority: 1,
-    });
-    registry.addChainSupport({
-      provider: 'herd',
-      capability: 'ContractDiff',
-      chains: ['ethereum', 'base'],
-      priority: 1,
-    });
-    registry.addChainSupport({
-      provider: 'herd',
-      capability: 'EventMonitor',
-      chains: ['ethereum', 'base'],
-      priority: 1,
-    });
-    registry.addChainSupport({
-      provider: 'herd',
-      capability: 'Research',
       chains: ['ethereum', 'base'],
       priority: 1,
     });
@@ -186,8 +158,6 @@ export {
   isHerdSupportedChain,
   herdTxAnalysisProvider,
   herdContractIntelProvider,
-  herdEventMonitorProvider,
-  herdResearchProvider,
   herdTokenDiscoveryProvider,
 } from './herd.js';
 

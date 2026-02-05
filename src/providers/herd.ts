@@ -49,18 +49,10 @@ import type {
   ContractMetadata,
   FunctionInfo,
   EventInfo,
-  CodeSearchParams,
-  CodeSearchResult,
-  ContractDiffParams,
-  ContractDiff,
-  // Event Monitor
-  EventMonitorProvider,
-  EventMonitorParams,
-  EventOccurrence,
-  // Research
-  ResearchProvider,
-  ResearchParams,
-  ResearchResult,
+  // Token Discovery
+  TokenDiscoveryProvider,
+  TokenDiscoveryResult,
+  TokenBalance,
   // Common
   ProviderResult,
 } from './types.js';
@@ -592,26 +584,23 @@ interface HerdTransactionAnalysis {
   }>;
 }
 
-interface HerdLatestTransaction {
-  txHash: string;
-  blockNumber: number;
-  blockTimestamp: number;
-  from: string;
-  success: boolean;
-  logs: Array<{
-    output: Record<string, unknown>;
-    contractAddress: string;
-    contractName?: string;
-    eventName: string;
-    eventSignature: string;
-    index: number;
+interface HerdWalletOverviewResponse {
+  walletAddress: string;
+  walletType: string;
+  blockchain: string;
+  balances: Array<{
+    address: string;  // Token contract address, or "native" for ETH
+    symbol: string;
+    name?: string;
+    decimals: number;
+    amount: string;   // Formatted balance (e.g., "4.484000")
+    balance?: string; // Raw balance (optional)
+    priceUsd?: number;
+    valueUsd?: number;
+    logoUrl?: string | null;
   }>;
-}
-
-interface HerdResearchResponse {
-  answer: string;
-  sources: Array<{ type: string; payload: { url: string; title: string } }>;
-  status: string;
+  transactionCount?: number;
+  deployedContractsCount?: number;
 }
 
 // ============================================================================
@@ -880,209 +869,63 @@ export class HerdContractIntelProvider implements ContractIntelProvider {
       level: 'full',
     };
   }
-
-  async searchCode(params: CodeSearchParams): Promise<ProviderResult<CodeSearchResult[]>> {
-    if (!isHerdEnabled()) return herdDisabled();
-    if (!isHerdSupportedChain(params.chain)) return unsupportedChain(params.chain);
-
-    const result = await callHerdTool<{ matches?: Array<{ contractAddress: string; contractName?: string; functionName?: string; lineNumbers?: string; snippet: string }> }>('regexCodeAnalysisTool', {
-      query: params.query,
-      contractAddresses: params.addresses,
-    });
-
-    if (!result.success || !result.data) {
-      return {
-        success: false,
-        error: result.error || 'Failed to search code',
-        provider: this.name,
-        level: 'unavailable',
-      };
-    }
-
-    // Group matches by contract
-    const byContract = new Map<string, CodeSearchResult>();
-    for (const match of result.data.matches || []) {
-      const existing = byContract.get(match.contractAddress);
-      if (existing) {
-        existing.matches.push({
-          functionName: match.functionName,
-          lineNumbers: match.lineNumbers,
-          snippet: match.snippet,
-        });
-      } else {
-        byContract.set(match.contractAddress, {
-          contractAddress: match.contractAddress,
-          contractName: match.contractName || 'Unknown',
-          matches: [{
-            functionName: match.functionName,
-            lineNumbers: match.lineNumbers,
-            snippet: match.snippet,
-          }],
-        });
-      }
-    }
-
-    return {
-      success: true,
-      data: Array.from(byContract.values()),
-      provider: this.name,
-      level: 'full',
-    };
-  }
-
-  async diffVersions(params: ContractDiffParams): Promise<ProviderResult<ContractDiff[]>> {
-    if (!isHerdEnabled()) return herdDisabled();
-    if (!isHerdSupportedChain(params.chain)) return unsupportedChain(params.chain);
-
-    const result = await callHerdTool<{ diffs?: Array<{ from: string; to: string; added?: Array<{ type: string; name: string; signature: string }>; removed?: Array<{ type: string; name: string; signature: string }>; modified?: Array<{ type: string; name: string; changes: string }> }> }>('diffContractVersions', {
-      compareAllVersions: params.compareAllVersions,
-    });
-
-    if (!result.success || !result.data) {
-      return {
-        success: false,
-        error: result.error || 'Failed to diff versions',
-        provider: this.name,
-        level: 'unavailable',
-      };
-    }
-
-    const diffs: ContractDiff[] = (result.data.diffs || []).map((diff, idx) => ({
-      fromVersion: idx,
-      toVersion: idx + 1,
-      fromAddress: diff.from,
-      toAddress: diff.to,
-      added: (diff.added || []).map(a => ({
-        type: a.type as 'function' | 'event',
-        name: a.name,
-        signature: a.signature,
-      })),
-      removed: (diff.removed || []).map(r => ({
-        type: r.type as 'function' | 'event',
-        name: r.name,
-        signature: r.signature,
-      })),
-      modified: (diff.modified || []).map(m => ({
-        type: m.type as 'function' | 'event',
-        name: m.name,
-        changes: m.changes,
-      })),
-    }));
-
-    return {
-      success: true,
-      data: diffs,
-      provider: this.name,
-      level: 'full',
-    };
-  }
 }
 
 // ============================================================================
-// Event Monitor Provider
+// Token Discovery Provider
 // ============================================================================
 
-export class HerdEventMonitorProvider implements EventMonitorProvider {
+export class HerdTokenDiscoveryProvider implements TokenDiscoveryProvider {
   name = 'herd';
 
   supportedChains(): SupportedChain[] {
     return HERD_SUPPORTED_CHAINS;
   }
 
-  async getRecentEvents(params: EventMonitorParams): Promise<ProviderResult<EventOccurrence[]>> {
+  async discoverTokens(
+    address: string,
+    chain: SupportedChain
+  ): Promise<ProviderResult<TokenDiscoveryResult>> {
     if (!isHerdEnabled()) return herdDisabled();
-    if (!isHerdSupportedChain(params.filter.chain)) return unsupportedChain(params.filter.chain);
+    if (!isHerdSupportedChain(chain)) return unsupportedChain(chain);
 
-    if (!params.filter.eventSignature) {
-      return {
-        success: false,
-        error: 'Event signature (keccak hash) is required. Use contractMetadata to get it.',
-        provider: this.name,
-        level: 'unavailable',
-      };
-    }
-
-    const result = await callHerdTool<{ transactions?: HerdLatestTransaction[] }>('getLatestTransactionsTool', {
-      type: 'event',
-      signature: params.filter.eventSignature,
-      contractAddress: params.filter.address,
-      blockchain: params.filter.chain,
+    const result = await callHerdTool<HerdWalletOverviewResponse>('getWalletOverviewTool', {
+      walletAddress: address,
+      blockchain: chain,
     });
 
     if (!result.success || !result.data) {
       return {
         success: false,
-        error: result.error || 'Failed to get recent events',
+        error: result.error || 'Failed to discover tokens',
         provider: this.name,
         level: 'unavailable',
       };
     }
 
-    const events: EventOccurrence[] = [];
+    const data = result.data;
 
-    for (const tx of result.data.transactions || []) {
-      for (const log of tx.logs || []) {
-        events.push({
-          txHash: tx.txHash,
-          blockNumber: tx.blockNumber,
-          timestamp: new Date(tx.blockTimestamp * 1000).toISOString(),
-          event: {
-            eventName: log.eventName,
-            signature: log.eventSignature,
-            contractAddress: log.contractAddress,
-            contractName: log.contractName,
-            args: log.output,
-            logIndex: log.index,
-          },
-          explorerUrl: `${EXPLORER_URLS[params.filter.chain]}/tx/${tx.txHash}`,
-        });
-      }
-    }
+    // Map Herd balances to our TokenBalance format
+    // Herd returns "native" for ETH, actual contract addresses for tokens
+    const balances: TokenBalance[] = (data.balances || []).map(b => ({
+      address: b.address,  // Herd already uses 'native' for ETH
+      symbol: b.symbol,
+      name: b.name,
+      amount: b.amount,
+      decimals: b.decimals,
+      valueUsd: b.valueUsd || 0,
+      logoUrl: b.logoUrl || undefined,
+    }));
 
-    // Limit results
-    const limited = events.slice(0, params.limit || 50);
-
-    return {
-      success: true,
-      data: limited,
-      provider: this.name,
-      level: 'full',
-    };
-  }
-}
-
-// ============================================================================
-// Research Provider
-// ============================================================================
-
-export class HerdResearchProvider implements ResearchProvider {
-  name = 'herd';
-
-  async research(params: ResearchParams): Promise<ProviderResult<ResearchResult>> {
-    if (!isHerdEnabled()) return herdDisabled();
-
-    const result = await callHerdTool<HerdResearchResponse>('researchTool', {
-      question: params.question,
-      selectedNetwork: params.network,
-    });
-
-    if (!result.success || !result.data) {
-      return {
-        success: false,
-        error: result.error || 'Failed to research',
-        provider: this.name,
-        level: 'unavailable',
-      };
-    }
+    const totalValueUsd = balances.reduce((sum, b) => sum + b.valueUsd, 0);
 
     return {
       success: true,
       data: {
-        answer: result.data.answer,
-        sources: (result.data.sources || []).map(s => ({
-          title: s.payload?.title || 'Source',
-          url: s.payload?.url || '',
-        })),
+        address,
+        chain,
+        balances,
+        totalValueUsd,
       },
       provider: this.name,
       level: 'full',
@@ -1097,5 +940,4 @@ export class HerdResearchProvider implements ResearchProvider {
 export const herdHistoryProvider = new HerdHistoryProvider();
 export const herdTxAnalysisProvider = new HerdTxAnalysisProvider();
 export const herdContractIntelProvider = new HerdContractIntelProvider();
-export const herdEventMonitorProvider = new HerdEventMonitorProvider();
-export const herdResearchProvider = new HerdResearchProvider();
+export const herdTokenDiscoveryProvider = new HerdTokenDiscoveryProvider();

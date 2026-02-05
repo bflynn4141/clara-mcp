@@ -188,8 +188,8 @@ export async function signAndSendTransaction(
         value,
         data: tx.data,
       });
-      // Add 20% buffer for safety
-      request.gas = (estimatedGas * 120n) / 100n;
+      // Add 50% buffer for safety (complex contract calls like Morpho need headroom)
+      request.gas = (estimatedGas * 150n) / 100n;
       console.error(`[para] Estimated gas: ${estimatedGas}, using: ${request.gas}`);
     }
 

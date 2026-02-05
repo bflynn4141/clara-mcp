@@ -37,26 +37,27 @@ const SpendingLimitsInputSchema = z.object({
     .string()
     .optional()
     .describe('New approval threshold in USD (e.g., "1.00")'),
-});
-
-/**
- * Input schema for wallet_spending_history tool
- */
-const SpendingHistoryInputSchema = z.object({
-  days: z
+  showHistory: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('Include recent spending history in the response'),
+  historyDays: z
     .number()
     .min(1)
     .max(90)
+    .optional()
     .default(7)
-    .describe('Number of days of history to show (1-90)'),
+    .describe('Days of history to include when showHistory is true (1-90)'),
 });
+
 
 /**
  * Tool definition for wallet_spending_limits
  */
 export const spendingLimitsToolDefinition = {
   name: 'wallet_spending_limits',
-  description: `View or configure autonomous spending limits.
+  description: `View or configure autonomous spending limits, and optionally view spending history.
 
 **Actions:**
 - \`view\`: Show current spending limits and today's usage
@@ -72,6 +73,11 @@ export const spendingLimitsToolDefinition = {
 View limits:
 \`\`\`json
 { "action": "view" }
+\`\`\`
+
+View limits with recent history:
+\`\`\`json
+{ "action": "view", "showHistory": true, "historyDays": 7 }
 \`\`\`
 
 Set stricter limits:
@@ -104,37 +110,22 @@ Set stricter limits:
         type: 'string',
         description: 'USD threshold requiring approval',
       },
-    },
-  },
-};
-
-/**
- * Tool definition for wallet_spending_history
- */
-export const spendingHistoryToolDefinition = {
-  name: 'wallet_spending_history',
-  description: `View recent autonomous payment history.
-
-Shows all payments made through x402 in the specified time period,
-grouped by day with totals.
-
-**Example:**
-\`\`\`json
-{ "days": 7 }
-\`\`\``,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      days: {
+      showHistory: {
+        type: 'boolean',
+        default: false,
+        description: 'Include recent spending history in the response',
+      },
+      historyDays: {
         type: 'number',
         minimum: 1,
         maximum: 90,
         default: 7,
-        description: 'Days of history to show',
+        description: 'Days of history when showHistory is true',
       },
     },
   },
 };
+
 
 /**
  * Execute wallet_spending_limits tool
@@ -143,11 +134,15 @@ function executeSpendingLimits(
   args: z.infer<typeof SpendingLimitsInputSchema>
 ): { content: Array<{ type: string; text: string }> } {
   if (args.action === 'view') {
+    let text = formatSpendingSummary();
+    if (args.showHistory) {
+      text += '\n\n---\n\n' + formatSpendingHistory(args.historyDays ?? 7);
+    }
     return {
       content: [
         {
           type: 'text',
-          text: formatSpendingSummary(),
+          text,
         },
       ],
     };
@@ -235,22 +230,6 @@ function executeSpendingLimits(
 }
 
 /**
- * Execute wallet_spending_history tool
- */
-function executeSpendingHistory(
-  args: z.infer<typeof SpendingHistoryInputSchema>
-): { content: Array<{ type: string; text: string }> } {
-  return {
-    content: [
-      {
-        type: 'text',
-        text: formatSpendingHistory(args.days),
-      },
-    ],
-  };
-}
-
-/**
  * Register spending tools with the MCP server
  */
 export function registerSpendingTools(server: Server): void {
@@ -265,12 +244,8 @@ export function handleSpendingToolRequest(
   toolName: string,
   args: unknown
 ): { content: Array<{ type: string; text: string }> } | null {
-  switch (toolName) {
-    case 'wallet_spending_limits':
-      return executeSpendingLimits(SpendingLimitsInputSchema.parse(args));
-    case 'wallet_spending_history':
-      return executeSpendingHistory(SpendingHistoryInputSchema.parse(args));
-    default:
-      return null;
+  if (toolName === 'wallet_spending_limits') {
+    return executeSpendingLimits(SpendingLimitsInputSchema.parse(args));
   }
+  return null;
 }

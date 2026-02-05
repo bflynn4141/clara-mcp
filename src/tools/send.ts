@@ -23,6 +23,7 @@ import {
 } from '../config/chains.js';
 import { resolveToken } from '../config/tokens.js';
 import { assessContractRisk, formatRiskAssessment, quickSafeCheck } from '../services/risk.js';
+import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
 
 /**
  * Tool definition for wallet_send
@@ -202,6 +203,33 @@ export async function handleSendRequest(
       }
     }
 
+    // -------------------------------------------------------------------------
+    // Spending Limit Check
+    // -------------------------------------------------------------------------
+    // Estimate USD value: stablecoins (USDC/USDT/DAI) ≈ 1:1 USD.
+    // For native tokens (ETH, MATIC) we skip the check since gas limits
+    // handle those, and we don't have a price oracle here.
+    const STABLECOINS = ['USDC', 'USDT', 'DAI'];
+    const tokenSymbolUpper = tokenInput?.toUpperCase();
+    let estimatedUsd: number | null = null;
+
+    if (tokenSymbolUpper && STABLECOINS.includes(tokenSymbolUpper)) {
+      estimatedUsd = parseFloat(amount);
+    }
+
+    if (estimatedUsd !== null && estimatedUsd > 0) {
+      const spendCheck = checkSpendingLimits(estimatedUsd.toFixed(2));
+      if (!spendCheck.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text: `🛑 **Send blocked by spending limits**\n\n${spendCheck.reason}\n\nUse \`wallet_spending_limits\` to view or adjust your limits.`,
+          }],
+          isError: true,
+        };
+      }
+    }
+
     let txHash: Hex;
     let symbol: string;
     let sentAmount: string;
@@ -256,6 +284,20 @@ export async function handleSendRequest(
       });
 
       txHash = result.txHash;
+    }
+
+    // Record spending for limit tracking (stablecoins only)
+    if (estimatedUsd !== null && estimatedUsd > 0) {
+      recordSpending({
+        timestamp: new Date().toISOString(),
+        amountUsd: estimatedUsd.toFixed(2),
+        recipient: to,
+        description: `Send ${sentAmount} ${symbol} on ${chainName}`,
+        url: '',
+        chainId: chainConfig.chainId,
+        txHash,
+        paymentId: `send-${txHash.slice(0, 10)}`,
+      });
     }
 
     // Success response

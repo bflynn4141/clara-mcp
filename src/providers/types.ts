@@ -18,10 +18,7 @@ export type ProviderCapability =
   | 'HistoryList'        // List transactions for an account
   | 'TxAnalysis'         // Deep transaction decoding
   | 'ContractMetadata'   // ABI, functions, events, token info
-  | 'CodeSearch'         // Search contract source code
-  | 'EventMonitor'       // Watch for contract events
-  | 'ContractDiff'       // Compare contract versions
-  | 'Research';          // AI-powered blockchain research
+  | 'TokenDiscovery';    // Discover all tokens held by an address
 
 /**
  * Chain support level for a provider
@@ -318,110 +315,12 @@ export interface ContractMetadataParams {
 }
 
 /**
- * Code search result
- */
-export interface CodeSearchResult {
-  contractAddress: string;
-  contractName: string;
-  matches: Array<{
-    functionName?: string;
-    lineNumbers?: string;
-    snippet: string;
-  }>;
-}
-
-export interface CodeSearchParams {
-  query: string;
-  addresses?: string[];
-  chain: SupportedChain;
-}
-
-/**
- * Contract version diff
- */
-export interface ContractDiff {
-  fromVersion: number;
-  toVersion: number;
-  fromAddress: string;
-  toAddress: string;
-  added: Array<{ type: 'function' | 'event'; name: string; signature: string }>;
-  removed: Array<{ type: 'function' | 'event'; name: string; signature: string }>;
-  modified: Array<{ type: 'function' | 'event'; name: string; changes: string }>;
-}
-
-export interface ContractDiffParams {
-  address: string;
-  chain: SupportedChain;
-  compareAllVersions?: boolean;
-}
-
-/**
  * Provider for contract intelligence
  */
 export interface ContractIntelProvider {
   name: string;
   getMetadata(params: ContractMetadataParams): Promise<ProviderResult<ContractMetadata>>;
-  searchCode?(params: CodeSearchParams): Promise<ProviderResult<CodeSearchResult[]>>;
-  diffVersions?(params: ContractDiffParams): Promise<ProviderResult<ContractDiff[]>>;
   supportedChains(): SupportedChain[];
-}
-
-// ============================================================================
-// Event Monitor Provider
-// ============================================================================
-
-export interface EventFilter {
-  address: string;
-  eventName?: string;
-  eventSignature?: string;  // 32-byte topic
-  chain: SupportedChain;
-}
-
-export interface EventOccurrence {
-  txHash: string;
-  blockNumber: number;
-  timestamp: string;
-  event: DecodedEvent;
-  explorerUrl: string;
-}
-
-export interface EventMonitorParams {
-  filter: EventFilter;
-  limit?: number;
-}
-
-/**
- * Provider for monitoring contract events
- */
-export interface EventMonitorProvider {
-  name: string;
-  getRecentEvents(params: EventMonitorParams): Promise<ProviderResult<EventOccurrence[]>>;
-  supportedChains(): SupportedChain[];
-}
-
-// ============================================================================
-// Research Provider
-// ============================================================================
-
-export interface ResearchResult {
-  answer: string;
-  sources: Array<{
-    title: string;
-    url: string;
-  }>;
-}
-
-export interface ResearchParams {
-  question: string;
-  network?: SupportedChain;
-}
-
-/**
- * Provider for AI-powered blockchain research
- */
-export interface ResearchProvider {
-  name: string;
-  research(params: ResearchParams): Promise<ProviderResult<ResearchResult>>;
 }
 
 // ============================================================================
@@ -452,4 +351,44 @@ export interface RiskAssessment {
   signals: RiskSignal[];
   overallRisk: 'low' | 'medium' | 'high' | 'critical';
   recommendation: 'proceed' | 'caution' | 'avoid';
+}
+
+// ============================================================================
+// Token Discovery Provider
+// ============================================================================
+
+/**
+ * A single token balance discovered for an address
+ */
+export interface TokenBalance {
+  /** Token contract address, or 'native' for ETH/native tokens */
+  address: string;
+  symbol: string;
+  name?: string;
+  amount: string;
+  decimals: number;
+  valueUsd: number;
+  logoUrl?: string;
+}
+
+/**
+ * Result of token discovery for an address
+ */
+export interface TokenDiscoveryResult {
+  address: string;
+  chain: SupportedChain;
+  balances: TokenBalance[];
+  totalValueUsd: number;
+}
+
+/**
+ * Provider for discovering all tokens held by an address
+ */
+export interface TokenDiscoveryProvider {
+  name: string;
+  discoverTokens(
+    address: string,
+    chain: SupportedChain
+  ): Promise<ProviderResult<TokenDiscoveryResult>>;
+  supportedChains(): SupportedChain[];
 }

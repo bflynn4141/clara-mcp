@@ -136,6 +136,17 @@ async function decrypt(data: Buffer): Promise<string> {
  */
 export async function getSession(): Promise<WalletSession | null> {
   if (cachedSession) {
+    // Check if cached session has expired (7 days of inactivity)
+    if (cachedSession.authenticated && cachedSession.lastActiveAt) {
+      const lastActive = new Date(cachedSession.lastActiveAt);
+      const now = new Date();
+      const daysSinceActive = (now.getTime() - lastActive.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceActive > 7) {
+        console.error('[clara] Session expired after 7 days inactivity, clearing...');
+        await clearSession();
+        return null;
+      }
+    }
     return cachedSession;
   }
 
@@ -143,7 +154,21 @@ export async function getSession(): Promise<WalletSession | null> {
     const sessionFile = getSessionFile();
     const encryptedData = await fs.readFile(sessionFile);
     const decrypted = await decrypt(encryptedData);
-    cachedSession = JSON.parse(decrypted);
+    const session: WalletSession = JSON.parse(decrypted);
+
+    // Check if loaded session has expired (7 days of inactivity)
+    if (session.authenticated && session.lastActiveAt) {
+      const lastActive = new Date(session.lastActiveAt);
+      const now = new Date();
+      const daysSinceActive = (now.getTime() - lastActive.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceActive > 7) {
+        console.error('[clara] Session expired after 7 days inactivity, clearing...');
+        await clearSession();
+        return null;
+      }
+    }
+
+    cachedSession = session;
     return cachedSession;
   } catch {
     return null;

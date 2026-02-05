@@ -6,8 +6,19 @@
  */
 
 import { z } from 'zod';
+import { createPublicClient, http, formatUnits, type Hex } from 'viem';
+import { base } from 'viem/chains';
 import { setupWallet, getWalletStatus, logout } from '../para/client.js';
 import { formatSpendingSummary } from '../storage/spending.js';
+import { getSession, touchSession } from '../storage/session.js';
+import {
+  resolveIdentity,
+  SUPPORTED_CHAIN_IDS,
+  CHAIN_NAMES,
+  DEFAULT_CHAIN_ID,
+  type SupportedChainId,
+} from '../identity/resolved-identity.js';
+import { getParaApiBase } from '../para/transactions.js';
 
 /**
  * wallet_setup tool definition
@@ -39,13 +50,28 @@ export const statusToolDefinition = {
   name: 'wallet_status',
   description: `Check your wallet status. Shows:
 - Whether you're authenticated
-- Your wallet address
-- Supported chains
-- Session age
-- Current spending limits`,
+- Your wallet address and identity binding
+- Supported chains and session age
+- Current spending limits
+- Clara Credits balance and available operations
+
+Use \`debug: true\` to include auth header diagnostics and optional connection test.`,
   inputSchema: {
     type: 'object' as const,
-    properties: {},
+    properties: {
+      chainId: {
+        type: 'number',
+        description: `Target chain ID to validate identity for. Defaults to ${DEFAULT_CHAIN_ID} (Base). Supported: ${SUPPORTED_CHAIN_IDS.join(', ')}`,
+      },
+      debug: {
+        type: 'boolean',
+        description: 'Include detailed auth debugging info (computed headers, identity binding, Para API base). Defaults to false.',
+      },
+      testConnection: {
+        type: 'boolean',
+        description: 'If true (requires debug: true), makes a test request to Para to validate auth. Defaults to false.',
+      },
+    },
   },
 };
 
@@ -74,7 +100,7 @@ export async function handleWalletToolRequest(
   }
 
   if (name === 'wallet_status') {
-    return handleStatus();
+    return handleStatus(args);
   }
 
   if (name === 'wallet_logout') {
@@ -113,7 +139,7 @@ async function handleSetup(
     lines.push('');
     lines.push('**⚡ Get Started:**');
     lines.push('1. **Add credits** - Deposit USDC to use signing operations');
-    lines.push('   - Run `wallet_credits` to see deposit instructions');
+    lines.push('   - Run `wallet_status` to see your credit balance and deposit instructions');
     lines.push('   - Minimum deposit: $0.10, each operation costs $0.001');
     lines.push('2. **Start using** - `wallet_pay_x402` for payments, `wallet_balance` for balances');
     lines.push('');
@@ -122,8 +148,7 @@ async function handleSetup(
     lines.push('');
     lines.push('**Useful commands:**');
     lines.push('- `wallet_briefing` - Get wallet insights and opportunities');
-    lines.push('- `wallet_credits` - Check your credit balance');
-    lines.push('- `wallet_status` - View wallet details');
+    lines.push('- `wallet_status` - View wallet details and credit balance');
     lines.push('- `wallet_spending_limits` - Configure spending controls');
 
     return {
@@ -140,12 +165,43 @@ async function handleSetup(
   }
 }
 
+// ── ClaraCredits contract constants (from credits.ts) ──
+const CLARA_CREDITS_ADDRESS: Hex = '0x423F12752a7EdbbB17E9d539995e85b921844d8D';
+const BASE_RPC = 'https://mainnet.base.org';
+const COST_PER_OPERATION = 1000n; // $0.001 in 6-decimal USDC
+const MIN_DEPOSIT = 100000n; // $0.10 in 6-decimal USDC
+
+const CREDITS_ABI = [
+  {
+    inputs: [{ name: 'user', type: 'address' }],
+    name: 'credits',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'user', type: 'address' }],
+    name: 'availableOperations',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
 /**
- * Handle wallet_status
+ * Handle wallet_status (consolidated from session-status, debug-auth, credits)
  */
-async function handleStatus(): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+async function handleStatus(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  const chainId = (args.chainId as number) || DEFAULT_CHAIN_ID;
+  const debug = (args.debug as boolean) || false;
+  const testConnection = (args.testConnection as boolean) || false;
+
   try {
     const status = await getWalletStatus();
+    const session = await getSession();
+    await touchSession();
 
     if (!status.authenticated) {
       return {
@@ -172,17 +228,50 @@ async function handleStatus(): Promise<{ content: Array<{ type: string; text: st
       lines.push(`**Email:** ${status.email}`);
     }
 
-    lines.push(`**Session Age:** ${status.sessionAge}`);
-    lines.push(`**Chains:** ${status.chains?.join(', ') || 'EVM'}`);
+    // ── Session identity (from session-status.ts) ──
+    const identityResult = await resolveIdentity(chainId);
 
-    // Add spending summary
+    if (identityResult.success) {
+      const chainName = CHAIN_NAMES[chainId as SupportedChainId] || `chain:${chainId}`;
+      lines.push(`**Chain:** ${chainName} (${chainId})`);
+      lines.push(`**Wallet Backend:** ${identityResult.identity.walletBackend}`);
+      lines.push(`**Session Marker:** ${identityResult.identity.sessionMarker}`);
+    }
+
+    // Session age
+    if (session?.createdAt) {
+      const ageMs = Date.now() - new Date(session.createdAt).getTime();
+      lines.push(`**Session Age:** ${formatDuration(ageMs)}`);
+    } else {
+      lines.push(`**Session Age:** ${status.sessionAge}`);
+    }
+
+    // Supported chains
+    lines.push('');
+    lines.push('**Supported Chains:**');
+    for (const id of SUPPORTED_CHAIN_IDS) {
+      const marker = id === chainId ? ' <-- selected' : '';
+      lines.push(`- ${CHAIN_NAMES[id]} (${id})${marker}`);
+    }
+
+    // ── Spending limits ──
     lines.push('');
     lines.push('**Spending Limits:**');
     lines.push(formatSpendingSummary());
 
+    // ── Credits (from credits.ts) ──
+    lines.push('');
+    lines.push(await formatCreditsSection(status.address as string));
+
+    // ── Debug auth (from debug-auth.ts, opt-in) ──
+    if (debug) {
+      lines.push('');
+      lines.push(await formatDebugSection(chainId, session, identityResult, testConnection));
+    }
+
     // Suggest briefing for intelligence
     lines.push('');
-    lines.push('💡 **Tip:** Run `wallet_briefing` for personalized insights on your holdings and opportunities.');
+    lines.push('**Tip:** Run `wallet_briefing` for personalized insights on your holdings and opportunities.');
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],
@@ -195,6 +284,206 @@ async function handleStatus(): Promise<{ content: Array<{ type: string; text: st
       }],
       isError: true,
     };
+  }
+}
+
+// ── Helper: Format credits section ──
+
+async function formatCreditsSection(address: string): Promise<string> {
+  const hexAddress = address as Hex;
+
+  if (CLARA_CREDITS_ADDRESS === '0x0000000000000000000000000000000000000000') {
+    return [
+      '**Credits:** Contract not yet deployed (all operations free during beta)',
+    ].join('\n');
+  }
+
+  try {
+    const client = createPublicClient({
+      chain: base,
+      transport: http(BASE_RPC),
+    });
+
+    const [creditBalance, availableOps] = await Promise.all([
+      client.readContract({
+        address: CLARA_CREDITS_ADDRESS,
+        abi: CREDITS_ABI,
+        functionName: 'credits',
+        args: [hexAddress],
+      }),
+      client.readContract({
+        address: CLARA_CREDITS_ADDRESS,
+        abi: CREDITS_ABI,
+        functionName: 'availableOperations',
+        args: [hexAddress],
+      }),
+    ]);
+
+    const balanceUSD = formatUnits(creditBalance, 6);
+    const balanceNum = parseFloat(balanceUSD);
+
+    const lines = [
+      '**Clara Credits:**',
+      `- Balance: $${balanceNum.toFixed(4)} USDC`,
+      `- Available operations: ${availableOps.toLocaleString()}`,
+      `- Cost per operation: $0.001`,
+    ];
+
+    if (creditBalance === 0n) {
+      lines.push('');
+      lines.push(`**Deposit:** Send USDC to \`${CLARA_CREDITS_ADDRESS}\` on Base (min $0.10)`);
+      lines.push(`[Deposit on BaseScan](https://basescan.org/address/${CLARA_CREDITS_ADDRESS}#writeContract)`);
+    } else if (availableOps < 10n) {
+      lines.push('');
+      lines.push(`Low credits. [Add more on BaseScan](https://basescan.org/address/${CLARA_CREDITS_ADDRESS}#writeContract)`);
+    }
+
+    return lines.join('\n');
+  } catch (error) {
+    return `**Credits:** Unable to fetch (${error instanceof Error ? error.message : 'Unknown error'})`;
+  }
+}
+
+// ── Helper: Format debug auth section ──
+
+async function formatDebugSection(
+  chainId: number,
+  session: Awaited<ReturnType<typeof getSession>>,
+  identityResult: Awaited<ReturnType<typeof resolveIdentity>>,
+  testConnection: boolean
+): Promise<string> {
+  const lines = ['## Auth Debug Report', ''];
+
+  // Auth status
+  let authStatus: string;
+  if (!session?.authenticated) {
+    authStatus = '❌ AUTH_MISSING';
+  } else if (!identityResult.success && identityResult.errorCode === 'SESSION_EXPIRED') {
+    authStatus = '⏰ AUTH_EXPIRED';
+  } else if (!identityResult.success) {
+    authStatus = '❌ AUTH_MISSING';
+  } else {
+    authStatus = '✅ AUTH_OK';
+  }
+
+  lines.push(`**Status:** ${authStatus}`);
+  lines.push('');
+
+  // Computed headers
+  const addressHeader = session?.address
+    ? redactAddress(session.address)
+    : '(not set)';
+  lines.push('**Computed Headers:**');
+  lines.push('```');
+  lines.push(`X-Clara-Address: ${addressHeader}`);
+  lines.push(`Content-Type: application/json`);
+  lines.push('```');
+  lines.push('');
+
+  // Identity binding
+  lines.push('**Identity Binding:**');
+  lines.push(`- Wallet ID: \`${session?.walletId || '(not set)'}\``);
+  lines.push(`- Address: \`${session?.address || '(not set)'}\``);
+  lines.push(`- Chain ID: ${chainId}`);
+  lines.push(`- Para API: ${getParaApiBase()}`);
+
+  // Hint from identity resolution
+  if (!identityResult.success && identityResult.hint) {
+    lines.push('');
+    lines.push(`**Hint:** ${identityResult.hint}`);
+  }
+
+  // Optional connection test
+  if (testConnection && identityResult.success) {
+    lines.push('');
+    const testResult = await testParaConnection(
+      identityResult.identity.walletId,
+      identityResult.identity.address
+    );
+    lines.push('**Server Validation:**');
+    lines.push(
+      testResult.success
+        ? `✅ ${testResult.message}`
+        : `❌ ${testResult.message}`
+    );
+  }
+
+  return lines.join('\n');
+}
+
+// ── Helper: Test Para connection ──
+
+async function testParaConnection(
+  walletId: string,
+  address: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const paraBase = getParaApiBase();
+    const response = await fetch(`${paraBase}/api/v1/wallets`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Clara-Address': address,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        success: false,
+        message: `Para API returned ${response.status}: ${text.slice(0, 200)}`,
+      };
+    }
+
+    const data = await response.json();
+    const wallets = Array.isArray(data) ? data : data.wallets || [];
+    const ourWallet = wallets.find(
+      (w: { id?: string; address?: string }) =>
+        w.id === walletId || w.address?.toLowerCase() === address.toLowerCase()
+    );
+
+    if (ourWallet) {
+      return {
+        success: true,
+        message: `Wallet ${walletId.slice(0, 8)}... verified with Para`,
+      };
+    } else {
+      return {
+        success: false,
+        message: `Wallet ${walletId.slice(0, 8)}... not found in Para response`,
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: `Connection error: ${error instanceof Error ? error.message : 'Unknown'}`,
+    };
+  }
+}
+
+// ── Helper: Redact address for security ──
+
+function redactAddress(address: string): string {
+  if (address.length < 12) return address;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+// ── Helper: Format milliseconds as human-readable duration ──
+
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) {
+    return `${days}d ${hours % 24}h`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  } else {
+    return `${seconds}s`;
   }
 }
 

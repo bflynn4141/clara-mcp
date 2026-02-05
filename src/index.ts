@@ -26,14 +26,8 @@ import {
 import { x402ToolDefinition } from './tools/x402.js';
 import {
   spendingLimitsToolDefinition,
-  spendingHistoryToolDefinition,
   handleSpendingToolRequest,
 } from './tools/spending.js';
-import {
-  discoverToolDefinition,
-  browseToolDefinition,
-  handleDiscoveryToolRequest,
-} from './tools/discovery.js';
 import { X402Client } from './para/x402.js';
 import { ParaClient, loadParaConfig } from './para/client.js';
 import {
@@ -51,24 +45,15 @@ import {
   logoutToolDefinition,
   handleWalletToolRequest,
 } from './tools/wallet.js';
-import { balanceToolDefinition, handleBalanceRequest } from './tools/balance.js';
 import { dashboardToolDefinition, handleDashboardRequest } from './tools/dashboard.js';
 import { historyToolDefinition, handleHistoryRequest } from './tools/history.js';
 import { sendToolDefinition, handleSendRequest } from './tools/send.js';
-import {
-  cancelToolDefinition,
-  speedUpToolDefinition,
-  handleTxManageRequest,
-} from './tools/txmanage.js';
 import {
   signMessageToolDefinition,
   signTypedDataToolDefinition,
   handleSignRequest,
 } from './tools/sign.js';
-import { simulateToolDefinition, handleSimulateRequest } from './tools/simulate.js';
 import { approvalsToolDefinition, handleApprovalsRequest } from './tools/approvals.js';
-import { ensToolDefinition, handleEnsRequest } from './tools/ens.js';
-import { creditsToolDefinition, handleCreditsRequest } from './tools/credits.js';
 
 // Herd-powered analysis tools
 import { initProviders } from './providers/index.js';
@@ -76,59 +61,6 @@ import {
   analyzeContractToolDefinition,
   handleAnalyzeContract,
 } from './tools/analyze-contract.js';
-import {
-  analyzeTxToolDefinition,
-  handleAnalyzeTx,
-} from './tools/analyze-tx.js';
-import {
-  monitorEventsToolDefinition,
-  handleMonitorEvents,
-} from './tools/monitor-events.js';
-import {
-  searchCodeToolDefinition,
-  handleSearchCode,
-} from './tools/search-code.js';
-import {
-  compareUpgradesToolDefinition,
-  handleCompareUpgrades,
-} from './tools/compare-upgrades.js';
-
-// Intelligence tools (wallet analysis)
-import {
-  analyzeHoldingToolDefinition,
-  handleAnalyzeHoldingRequest,
-} from './tools/analyze-holding.js';
-import {
-  opportunitiesToolDefinition,
-  handleOpportunitiesRequest,
-} from './tools/opportunities.js';
-import {
-  briefingToolDefinition,
-  handleBriefingRequest,
-} from './tools/briefing.js';
-import {
-  executeToolDefinition,
-  handleExecuteRequest,
-} from './tools/execute.js';
-
-// PRD P0/P1 tools (session, auth, tx, reads)
-import {
-  sessionStatusToolDefinition,
-  handleSessionStatusRequest,
-} from './tools/session-status.js';
-import {
-  debugAuthToolDefinition,
-  handleDebugAuthRequest,
-} from './tools/debug-auth.js';
-import {
-  sendTransactionToolDefinition,
-  handleSendTransactionRequest,
-} from './tools/send-transaction.js';
-import {
-  ethCallToolDefinition,
-  chainCallToolDefinition,
-  handleEthCallRequest,
-} from './tools/eth-call.js';
 import {
   swapToolDefinition,
   handleSwapRequest,
@@ -154,44 +86,19 @@ const TOOLS = [
   logoutToolDefinition,
   // Wallet Operations
   dashboardToolDefinition,
-  balanceToolDefinition,
   historyToolDefinition,
   sendToolDefinition,
-  cancelToolDefinition,
-  speedUpToolDefinition,
   // Signing
   signMessageToolDefinition,
   signTypedDataToolDefinition,
-  // Simulation & Safety
-  simulateToolDefinition,
+  // Safety
   approvalsToolDefinition,
-  // Utilities
-  ensToolDefinition,
-  creditsToolDefinition,
   // x402 Payments (Clara's core)
   x402ToolDefinition,
   spendingLimitsToolDefinition,
-  spendingHistoryToolDefinition,
-  discoverToolDefinition,
-  browseToolDefinition,
-  // Herd-powered analysis tools
+  // Herd-powered analysis
   analyzeContractToolDefinition,
-  analyzeTxToolDefinition,
-  monitorEventsToolDefinition,
-  searchCodeToolDefinition,
-  compareUpgradesToolDefinition,
-  // Intelligence tools (wallet analysis)
-  analyzeHoldingToolDefinition,
-  opportunitiesToolDefinition,
-  briefingToolDefinition,
-  executeToolDefinition,
-  // PRD P0/P1 tools (session, auth, tx, reads)
-  sessionStatusToolDefinition,
-  debugAuthToolDefinition,
-  sendTransactionToolDefinition,
-  ethCallToolDefinition,
-  chainCallToolDefinition,
-  // DeFi tools (migrated from para-wallet)
+  // DeFi
   swapToolDefinition,
   // Two-phase contract execution
   callToolDefinition,
@@ -237,11 +144,6 @@ function createServer(): Server {
         return await handleDashboardRequest(args as Record<string, unknown>);
       }
 
-      // Handle balance
-      if (name === 'wallet_balance') {
-        return await handleBalanceRequest(args as Record<string, unknown>);
-      }
-
       // Handle history
       if (name === 'wallet_history') {
         return await handleHistoryRequest(args as Record<string, unknown>);
@@ -252,36 +154,15 @@ function createServer(): Server {
         return await handleSendRequest(args as Record<string, unknown>);
       }
 
-      // Handle tx management (cancel, speed_up)
-      const txManageResult = await handleTxManageRequest(name, args as Record<string, unknown>);
-      if (txManageResult) {
-        return txManageResult;
-      }
-
       // Handle signing tools
       const signResult = await handleSignRequest(name, args as Record<string, unknown>);
       if (signResult) {
         return signResult;
       }
 
-      // Handle simulation
-      if (name === 'wallet_simulate') {
-        return await handleSimulateRequest(args as Record<string, unknown>);
-      }
-
       // Handle approvals
       if (name === 'wallet_approvals') {
         return await handleApprovalsRequest(args as Record<string, unknown>);
-      }
-
-      // Handle ENS resolution
-      if (name === 'wallet_resolve_ens') {
-        return await handleEnsRequest(args as Record<string, unknown>);
-      }
-
-      // Handle credits
-      if (name === 'wallet_credits') {
-        return await handleCreditsRequest(args as Record<string, unknown>);
       }
 
       // Handle spending tools
@@ -290,56 +171,12 @@ function createServer(): Server {
         return spendingResult;
       }
 
-      // Handle discovery tools (x402 ecosystem)
-      const discoveryResult = await handleDiscoveryToolRequest(name, args as Record<string, unknown>);
-      if (discoveryResult) {
-        return discoveryResult;
-      }
-
-      // Handle Herd-powered analysis tools
+      // Handle Herd-powered analysis
       if (name === 'wallet_analyze_contract') {
         return await handleAnalyzeContract(args as Record<string, unknown>);
       }
-      if (name === 'wallet_analyze_tx') {
-        return await handleAnalyzeTx(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_monitor_events') {
-        return await handleMonitorEvents(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_search_code') {
-        return await handleSearchCode(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_compare_upgrades') {
-        return await handleCompareUpgrades(args as Record<string, unknown>);
-      }
 
-      // Handle Intelligence tools (wallet analysis)
-      if (name === 'wallet_analyze_holding') {
-        return await handleAnalyzeHoldingRequest(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_opportunities') {
-        return await handleOpportunitiesRequest(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_briefing') {
-        return await handleBriefingRequest(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_execute') {
-        return await handleExecuteRequest(args as Record<string, unknown>);
-      }
-
-      // Handle PRD P0/P1 tools (session, auth, tx, reads)
-      if (name === 'wallet_session_status') {
-        return await handleSessionStatusRequest(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_debug_auth') {
-        return await handleDebugAuthRequest(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_send_transaction') {
-        return await handleSendTransactionRequest(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_eth_call' || name === 'wallet_chain_call') {
-        return await handleEthCallRequest(args as Record<string, unknown>);
-      }
+      // Handle swap
       if (name === 'wallet_swap') {
         return await handleSwapRequest(args as Record<string, unknown>);
       }
