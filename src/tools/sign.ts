@@ -47,13 +47,18 @@ Returns an EIP-191 personal_sign signature.`,
  * Para's sign-raw endpoint expects the message as a hex string.
  * For personal_sign (EIP-191), we prepend the Ethereum message prefix.
  */
-async function signMessage(walletId: string, message: string): Promise<Hex> {
+async function signMessage(walletId: string, message: string, userAddress?: string): Promise<Hex> {
   // Convert message to hex (Para expects hex-encoded data)
   const messageHex = '0x' + Buffer.from(message, 'utf-8').toString('hex');
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (userAddress) {
+    headers['X-Clara-Address'] = userAddress;
+  }
+
   const response = await fetch(`${PARA_API_BASE}/api/v1/wallets/${walletId}/sign-raw`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ data: messageHex }),
   });
 
@@ -150,7 +155,8 @@ async function signTypedData(
   domain: Record<string, unknown>,
   types: Record<string, Array<{ name: string; type: string }>>,
   primaryType: string,
-  message: Record<string, unknown>
+  message: Record<string, unknown>,
+  userAddress?: string
 ): Promise<Hex> {
   // Hash the typed data locally
   const hash = hashTypedData({
@@ -160,10 +166,15 @@ async function signTypedData(
     message: message as any,
   });
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (userAddress) {
+    headers['X-Clara-Address'] = userAddress;
+  }
+
   // Sign the hash
   const response = await fetch(`${PARA_API_BASE}/api/v1/wallets/${walletId}/sign-raw`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ data: hash }),
   });
 
@@ -215,7 +226,8 @@ export async function handleSignTypedDataRequest(
       domain,
       types,
       primaryType,
-      message
+      message,
+      session.address
     );
 
     // Format output
@@ -289,7 +301,7 @@ export async function handleSignMessageRequest(
   await touchSession();
 
   try {
-    const signature = await signMessage(session.walletId, message);
+    const signature = await signMessage(session.walletId, message, session.address);
 
     return {
       content: [{

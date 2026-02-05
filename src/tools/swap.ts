@@ -11,7 +11,7 @@
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { encodeFunctionData, type Hex } from 'viem';
+import { encodeFunctionData, createPublicClient, http, formatEther, type Hex } from 'viem';
 import {
   getSwapQuote,
   executeSwap,
@@ -22,7 +22,7 @@ import {
 } from '../para/swap.js';
 import { getSession } from '../storage/session.js';
 import { signAndSendTransaction } from '../para/transactions.js';
-import { type SupportedChain, isSupportedChain, getChainId } from '../config/chains.js';
+import { type SupportedChain, isSupportedChain, getChainId, getRpcUrl, CHAINS } from '../config/chains.js';
 import { getProviderRegistry, isHerdEnabled } from '../providers/index.js';
 import {
   cacheQuote,
@@ -287,6 +287,9 @@ export async function handleSwapRequest(
       };
     }
 
+    // Minimum swap amount to cover gas overhead
+    const MIN_SWAP_USD = 0.05;
+
     // Variables to hold quote and chain (either from cache or fresh)
     let quote: SwapQuote;
     let chain: SupportedChain;
@@ -334,6 +337,20 @@ export async function handleSwapRequest(
 
       // Get fresh quote from Li.Fi
       quote = await getSwapQuote(fromToken, toToken, amount, chain, { slippage });
+    }
+
+    // Validate minimum swap amount to cover gas fees
+    const quoteFromUsd = parseFloat(quote.fromAmountUsd || '0');
+    if (quoteFromUsd > 0 && quoteFromUsd < MIN_SWAP_USD) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Swap amount too small. Minimum swap amount is $${MIN_SWAP_USD.toFixed(2)} to cover gas fees. You requested ~$${quoteFromUsd.toFixed(4)}.`,
+          },
+        ],
+        isError: true,
+      };
     }
 
     // Run Herd safety check on router
@@ -419,6 +436,35 @@ export async function handleSwapRequest(
         ],
         isError: true,
       };
+    }
+
+    // Pre-flight ETH balance check for gas
+    const estimatedGasUsd = parseFloat(quote.estimatedGasUsd || '0');
+    if (estimatedGasUsd > 0) {
+      try {
+        const publicClient = createPublicClient({
+          chain: CHAINS[chain].chain,
+          transport: http(getRpcUrl(chain)),
+        });
+        const ethBalance = await publicClient.getBalance({ address: session.address as Hex });
+        // Rough check: need at least estimated gas * 2 in ETH (safety margin)
+        // Convert gas USD to ETH rough estimate: gasUsd / ethPrice
+        // Use a conservative check: if balance is near zero, warn
+        if (ethBalance === 0n) {
+          return {
+            content: [{
+              type: 'text',
+              text: `❌ No native ETH balance on ${chain} to pay for gas (~$${quote.estimatedGasUsd}). Deposit ETH first.`,
+            }],
+            isError: true,
+          };
+        }
+        // Log for diagnostics
+        console.error(`[clara] ETH balance for gas: ${formatEther(ethBalance)} ETH`);
+      } catch (e) {
+        // Non-fatal: proceed with swap, let the RPC reject if truly insufficient
+        console.error(`[clara] Gas balance pre-check failed: ${e}`);
+      }
     }
 
     // Mark quote as consumed BEFORE sending transactions (prevents double-execution)
