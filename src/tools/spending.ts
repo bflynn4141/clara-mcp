@@ -8,7 +8,6 @@
  */
 
 import { z } from 'zod';
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   getSpendingLimits,
   setSpendingLimits,
@@ -90,7 +89,7 @@ Set stricter limits:
 }
 \`\`\``,
   inputSchema: {
-    type: 'object',
+    type: 'object' as const,
     properties: {
       action: {
         type: 'string',
@@ -230,15 +229,16 @@ function executeSpendingLimits(
 }
 
 /**
- * Register spending tools with the MCP server
+ * Handle spending limits requests (for tool registry)
  */
-export function registerSpendingTools(server: Server): void {
-  // This would be integrated with the server's tool handling
-  // The actual registration depends on the MCP SDK version
+export async function handleSpendingLimitsRequest(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  return executeSpendingLimits(SpendingLimitsInputSchema.parse(args));
 }
 
 /**
- * Handle spending tool requests
+ * Handle spending tool requests (legacy dispatch)
  */
 export function handleSpendingToolRequest(
   toolName: string,

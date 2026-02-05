@@ -9,8 +9,8 @@
  */
 
 import { createPublicClient, http, formatUnits, type Hex } from 'viem';
-import { getSession, touchSession } from '../storage/session.js';
 import { getWalletStatus } from '../para/client.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 import { formatSpendingSummary, getSpendingHistory } from '../storage/spending.js';
 import { CHAINS, getRpcUrl, type SupportedChain } from '../config/chains.js';
 import { getProviderRegistry } from '../providers/index.js';
@@ -163,7 +163,8 @@ async function fetchChainBalances(
         };
       }
     } catch (error) {
-      console.error(`[dashboard] Herd discovery failed for ${chain}, falling back to RPC:`, error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[dashboard] Herd discovery failed for ${chain}, falling back to RPC: ${msg}`);
     }
   }
 
@@ -248,7 +249,10 @@ async function fetchChainBalancesLegacy(
       totalUsdValue: totalUsd,
     };
   } catch (error) {
-    console.error(`[dashboard] Failed to fetch ${chain} balances:`, error);
+    const code = (error as any)?.code;
+    const msg = error instanceof Error ? error.message : String(error);
+    const detail = code ? `RPC error (${code})` : msg;
+    console.error(`[dashboard] Skipping ${chain}: ${detail}`);
     return null;
   }
 }
@@ -257,28 +261,13 @@ async function fetchChainBalancesLegacy(
  * Handle wallet_dashboard requests
  */
 export async function handleDashboardRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const includeZero = (args.includeZeroBalances as boolean) || false;
 
   try {
-    // Check session
-    const session = await getSession();
-    if (!session?.authenticated || !session.address) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: '❌ No wallet configured. Run `wallet_setup` first.',
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    await touchSession();
-
-    const address = session.address as Hex;
+    const address = ctx.walletAddress;
 
     // Fetch wallet status and balances in parallel
     const [status, ...chainBalances] = await Promise.all([

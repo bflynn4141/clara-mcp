@@ -88,32 +88,9 @@ export const logoutToolDefinition = {
 };
 
 /**
- * Handle wallet tool requests
- */
-export async function handleWalletToolRequest(
-  name: string,
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean } | null> {
-
-  if (name === 'wallet_setup') {
-    return handleSetup(args);
-  }
-
-  if (name === 'wallet_status') {
-    return handleStatus(args);
-  }
-
-  if (name === 'wallet_logout') {
-    return handleLogout();
-  }
-
-  return null;
-}
-
-/**
  * Handle wallet_setup
  */
-async function handleSetup(
+export async function handleSetupRequest(
   args: Record<string, unknown>
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const email = args.email as string | undefined;
@@ -191,7 +168,7 @@ const CREDITS_ABI = [
 /**
  * Handle wallet_status (consolidated from session-status, debug-auth, credits)
  */
-async function handleStatus(
+export async function handleStatusRequest(
   args: Record<string, unknown>
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const chainId = (args.chainId as number) || DEFAULT_CHAIN_ID;
@@ -490,7 +467,9 @@ function formatDuration(ms: number): string {
 /**
  * Handle wallet_logout
  */
-async function handleLogout(): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+export async function handleLogoutRequest(
+  _args: Record<string, unknown>,
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
     await logout();
 

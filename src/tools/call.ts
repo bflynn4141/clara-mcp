@@ -23,8 +23,8 @@ import {
   type AbiFunction,
 } from 'viem';
 import { base, mainnet, arbitrum, optimism, polygon } from 'viem/chains';
-import { getSession } from '../storage/session.js';
 import { getProviderRegistry, isHerdEnabled } from '../providers/index.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 import { getRpcUrl, type SupportedChain, getChainId } from '../config/chains.js';
 import {
   storePreparedTx,
@@ -241,8 +241,9 @@ function getFunctionSignature(func: AbiFunction): string {
  * Handle wallet_call requests
  */
 export async function handleCallRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const contract = args.contract as string;
   const funcName = args.function as string;
   const funcArgs = (args.args as unknown[]) || [];
@@ -255,15 +256,6 @@ export async function handleCallRequest(
     if (!contract || !contract.match(/^0x[a-fA-F0-9]{40}$/)) {
       return {
         content: [{ type: 'text', text: '❌ Invalid contract address' }],
-        isError: true,
-      };
-    }
-
-    // Check session
-    const session = await getSession();
-    if (!session?.authenticated || !session.address) {
-      return {
-        content: [{ type: 'text', text: '❌ No wallet connected. Run wallet_setup first.' }],
         isError: true,
       };
     }
@@ -379,7 +371,7 @@ export async function handleCallRequest(
 
     try {
       const gasEstimate = await publicClient.estimateGas({
-        account: session.address as Hex,
+        account: ctx.walletAddress,
         to: contract as Hex,
         data: calldata,
         value,
@@ -394,7 +386,7 @@ export async function handleCallRequest(
       // Try to get return value via call
       try {
         const callResult = await publicClient.call({
-          account: session.address as Hex,
+          account: ctx.walletAddress,
           to: contract as Hex,
           data: calldata,
           value,

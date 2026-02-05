@@ -12,8 +12,8 @@ import {
   http,
   type Hex,
 } from 'viem';
-import { getSession, touchSession } from '../storage/session.js';
 import { signAndSendTransaction } from '../para/transactions.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 import {
   CHAINS,
   getExplorerTxUrl,
@@ -24,6 +24,8 @@ import {
 import { resolveToken } from '../config/tokens.js';
 import { assessContractRisk, formatRiskAssessment, quickSafeCheck } from '../services/risk.js';
 import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
+import { requireGas } from '../gas-preflight.js';
+import { ClaraError, ClaraErrorCode } from '../errors.js';
 
 /**
  * Tool definition for wallet_send
@@ -108,8 +110,9 @@ const ERC20_TRANSFER_ABI = [
  * Handle wallet_send requests
  */
 export async function handleSendRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const to = args.to as string;
   const amount = args.amount as string;
   const chainName = (args.chain as string) || 'base';
@@ -141,19 +144,9 @@ export async function handleSendRequest(
     };
   }
 
-  // Check session
-  const session = await getSession();
-  if (!session?.authenticated || !session.walletId || !session.address) {
-    return {
-      content: [{ type: 'text', text: '❌ Wallet not configured. Run `wallet_setup` first.' }],
-      isError: true,
-    };
-  }
-
-  await touchSession();
-
+  const session = ctx.session;
   const chainConfig = CHAINS[chainName];
-  const fromAddress = session.address as Hex;
+  const fromAddress = ctx.walletAddress;
 
   try {
     // -------------------------------------------------------------------------
@@ -230,6 +223,19 @@ export async function handleSendRequest(
       }
     }
 
+    // -------------------------------------------------------------------------
+    // Gas Pre-flight Check
+    // -------------------------------------------------------------------------
+    if (tokenInput) {
+      // ERC-20 transfer: only need gas (no ETH value sent)
+      await requireGas(chainName, fromAddress);
+    } else {
+      // Native transfer: need gas + the ETH value being sent
+      await requireGas(chainName, fromAddress, {
+        txValue: parseUnits(amount, 18),
+      });
+    }
+
     let txHash: Hex;
     let symbol: string;
     let sentAmount: string;
@@ -260,8 +266,28 @@ export async function handleSendRequest(
         args: [to as Hex, amountWei],
       });
 
+      // Simulate the ERC-20 transfer before signing
+      const client = createPublicClient({
+        chain: chainConfig.chain,
+        transport: http(getRpcUrl(chainName)),
+      });
+      try {
+        await client.call({
+          account: ctx.walletAddress,
+          to: token.address as Hex,
+          data,
+          value: 0n,
+        });
+      } catch (simError: any) {
+        throw new ClaraError(
+          ClaraErrorCode.SIMULATION_FAILED,
+          `Transaction would fail: ${simError.shortMessage || simError.message}`,
+          'Check the recipient address and your token balance.',
+        );
+      }
+
       // Send to token contract with transfer data
-      const result = await signAndSendTransaction(session.walletId, {
+      const result = await signAndSendTransaction(session.walletId!, {
         to: token.address,
         value: 0n,
         data,
@@ -277,7 +303,26 @@ export async function handleSendRequest(
       // Parse amount to wei
       const amountWei = parseUnits(amount, 18);
 
-      const result = await signAndSendTransaction(session.walletId, {
+      // Simulate the native transfer before signing
+      const client = createPublicClient({
+        chain: chainConfig.chain,
+        transport: http(getRpcUrl(chainName)),
+      });
+      try {
+        await client.call({
+          account: ctx.walletAddress,
+          to: to as Hex,
+          value: amountWei,
+        });
+      } catch (simError: any) {
+        throw new ClaraError(
+          ClaraErrorCode.SIMULATION_FAILED,
+          `Transaction would fail: ${simError.shortMessage || simError.message}`,
+          'Check the recipient address and your balance.',
+        );
+      }
+
+      const result = await signAndSendTransaction(session.walletId!, {
         to: to as Hex,
         value: amountWei,
         chainId: chainConfig.chainId,

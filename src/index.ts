@@ -23,27 +23,16 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { x402ToolDefinition } from './tools/x402.js';
-import {
-  spendingLimitsToolDefinition,
-  handleSpendingToolRequest,
-} from './tools/spending.js';
-import { X402Client } from './para/x402.js';
-import { ParaClient, loadParaConfig } from './para/client.js';
-import {
-  checkSpendingLimits,
-  recordSpending,
-  formatSpendingSummary,
-} from './storage/spending.js';
-import { getSession } from './storage/session.js';
-import type { Hex } from 'viem';
+import { registerTool, getAllToolDefinitions, dispatch } from './tool-registry.js';
 
-// Wallet core tools
+// Tool definitions and handlers
 import {
   setupToolDefinition,
   statusToolDefinition,
   logoutToolDefinition,
-  handleWalletToolRequest,
+  handleSetupRequest,
+  handleStatusRequest,
+  handleLogoutRequest,
 } from './tools/wallet.js';
 import { dashboardToolDefinition, handleDashboardRequest } from './tools/dashboard.js';
 import { historyToolDefinition, handleHistoryRequest } from './tools/history.js';
@@ -51,68 +40,169 @@ import { sendToolDefinition, handleSendRequest } from './tools/send.js';
 import {
   signMessageToolDefinition,
   signTypedDataToolDefinition,
-  handleSignRequest,
+  handleSignMessageRequest,
+  handleSignTypedDataRequest,
 } from './tools/sign.js';
 import { approvalsToolDefinition, handleApprovalsRequest } from './tools/approvals.js';
-
-// Herd-powered analysis tools
-import { initProviders } from './providers/index.js';
+import { x402ToolDefinition } from './tools/x402.js';
+import { handleX402PaymentRequest } from './tools/x402-handler.js';
+import {
+  spendingLimitsToolDefinition,
+  handleSpendingLimitsRequest,
+} from './tools/spending.js';
 import {
   analyzeContractToolDefinition,
   handleAnalyzeContract,
 } from './tools/analyze-contract.js';
-import {
-  swapToolDefinition,
-  handleSwapRequest,
-} from './tools/swap.js';
+import { swapToolDefinition, handleSwapRequest } from './tools/swap.js';
 import {
   opportunitiesToolDefinition,
   handleOpportunitiesRequest,
 } from './tools/opportunities.js';
-
-// Two-phase contract execution (wallet_call + wallet_executePrepared)
-import {
-  callToolDefinition,
-  handleCallRequest,
-} from './tools/call.js';
+import { callToolDefinition, handleCallRequest } from './tools/call.js';
 import {
   executePreparedToolDefinition,
   handleExecutePreparedRequest,
 } from './tools/execute-prepared.js';
 
-/**
- * All available tools
- */
-const TOOLS = [
-  // Wallet Core (session + identity)
-  setupToolDefinition,
-  statusToolDefinition,
-  logoutToolDefinition,
-  // Wallet Operations
-  dashboardToolDefinition,
-  historyToolDefinition,
-  sendToolDefinition,
-  // Signing
-  signMessageToolDefinition,
-  signTypedDataToolDefinition,
-  // Safety
-  approvalsToolDefinition,
-  // x402 Payments (Clara's core)
-  x402ToolDefinition,
-  spendingLimitsToolDefinition,
-  // Herd-powered analysis
-  analyzeContractToolDefinition,
-  // DeFi
-  swapToolDefinition,
-  opportunitiesToolDefinition,
-  // Two-phase contract execution
-  callToolDefinition,
-  executePreparedToolDefinition,
-];
+// Providers
+import { initProviders } from './providers/index.js';
+
+// Gas preflight extractors
+import { parseUnits } from 'viem';
+import type { GasPreflightExtractor } from './middleware.js';
+import type { SupportedChain } from './config/chains.js';
 
 /**
- * Create and configure the MCP server
+ * Extract chain and value from wallet_send args for gas estimation.
+ * Native transfers: gasLimit 21k + txValue. ERC-20: gasLimit 200k.
  */
+const sendGasExtractor: GasPreflightExtractor = (args) => {
+  const chain = (args.chain as string) || 'base';
+  const amount = args.amount as string | undefined;
+  const token = args.token as string | undefined;
+
+  // Only native transfers have txValue; ERC-20 transfers are just gas
+  const txValue = !token && amount ? parseUnits(amount, 18) : 0n;
+  const gasLimit = token ? 200_000n : 21_000n;
+
+  return { chain: chain as SupportedChain, txValue, gasLimit };
+};
+
+/**
+ * Extract chain from wallet_swap args (only for execute mode).
+ * Quotes don't send transactions, so skip preflight.
+ */
+const swapGasExtractor: GasPreflightExtractor = (args) => {
+  const action = (args.action as string) || 'quote';
+  if (action !== 'execute') return null;
+
+  const chain = (args.chain as string) || 'base';
+  return { chain: chain as SupportedChain, gasLimit: 500_000n };
+};
+
+/**
+ * Extract chain from wallet_executePrepared (always check).
+ * Best-effort: defaults to 'base' since chain is stored in prepared tx.
+ */
+const executePreparedGasExtractor: GasPreflightExtractor = () => {
+  return { chain: 'base', gasLimit: 300_000n };
+};
+
+/**
+ * Extract chain from wallet_call args (warn only — simulation may fail).
+ */
+const callGasExtractor: GasPreflightExtractor = (args) => {
+  const chain = (args.chain as string) || 'base';
+  const value = args.value ? BigInt(args.value as string) : 0n;
+  return { chain: chain as SupportedChain, txValue: value, gasLimit: 300_000n };
+};
+
+// ─── Tool Registration ──────────────────────────────────────────────
+// Each tool is registered with its definition, handler, and middleware config.
+// Auth-required tools receive a ToolContext with pre-validated session.
+// Public tools handle sessions internally.
+
+// Wallet Core (public — manage their own session lifecycle)
+registerTool(setupToolDefinition, handleSetupRequest, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+registerTool(statusToolDefinition, handleStatusRequest, {
+  requiresAuth: false,
+});
+registerTool(logoutToolDefinition, handleLogoutRequest, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// Wallet Operations (auth required)
+registerTool(dashboardToolDefinition, handleDashboardRequest);
+registerTool(historyToolDefinition, handleHistoryRequest);
+registerTool(sendToolDefinition, handleSendRequest, {
+  checksSpending: true,
+  gasPreflight: 'check',
+  gasExtractor: sendGasExtractor,
+});
+
+// Signing (auth required)
+registerTool(signMessageToolDefinition, handleSignMessageRequest);
+registerTool(signTypedDataToolDefinition, handleSignTypedDataRequest);
+
+// Safety (auth required)
+registerTool(approvalsToolDefinition, handleApprovalsRequest);
+
+// x402 Payments (auth required)
+registerTool(x402ToolDefinition, handleX402PaymentRequest, {
+  checksSpending: true,
+});
+
+// Spending limits (public — no auth needed to view/set limits)
+registerTool(spendingLimitsToolDefinition, handleSpendingLimitsRequest, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// Herd-powered analysis (public — no wallet needed)
+registerTool(analyzeContractToolDefinition, handleAnalyzeContract, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// DeFi (auth required for swap, public for opportunities)
+registerTool(swapToolDefinition, handleSwapRequest, {
+  gasPreflight: 'check',
+  gasExtractor: swapGasExtractor,
+});
+registerTool(opportunitiesToolDefinition, handleOpportunitiesRequest, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// Two-phase contract execution (auth required)
+registerTool(callToolDefinition, handleCallRequest, {
+  gasPreflight: 'warn',
+  gasExtractor: callGasExtractor,
+});
+registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
+  gasPreflight: 'check',
+  gasExtractor: executePreparedGasExtractor,
+});
+
+// ─── Config Validation ──────────────────────────────────────────────
+
+function validateConfig(): string[] {
+  const errors: string[] = [];
+  if (!process.env.CLARA_PROXY_URL) errors.push('Missing CLARA_PROXY_URL');
+  if (process.env.HERD_ENABLED === 'true') {
+    if (!process.env.HERD_API_URL) errors.push('HERD_ENABLED=true but HERD_API_URL not set');
+    if (!process.env.HERD_API_KEY) errors.push('HERD_ENABLED=true but HERD_API_KEY not set');
+  }
+  return errors;
+}
+
+// ─── Server Setup ───────────────────────────────────────────────────
+
 function createServer(): Server {
   const server = new Server(
     {
@@ -123,319 +213,19 @@ function createServer(): Server {
       capabilities: {
         tools: {},
       },
-    }
+    },
   );
 
-  // Handle tool listing
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: TOOLS,
-    };
-  });
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: getAllToolDefinitions(),
+  }));
 
-  // Handle tool execution
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-
-    try {
-      // Handle wallet core tools (setup, status, logout)
-      const walletResult = await handleWalletToolRequest(name, args as Record<string, unknown>);
-      if (walletResult) {
-        return walletResult;
-      }
-
-      // Handle dashboard
-      if (name === 'wallet_dashboard') {
-        return await handleDashboardRequest(args as Record<string, unknown>);
-      }
-
-      // Handle history
-      if (name === 'wallet_history') {
-        return await handleHistoryRequest(args as Record<string, unknown>);
-      }
-
-      // Handle send
-      if (name === 'wallet_send') {
-        return await handleSendRequest(args as Record<string, unknown>);
-      }
-
-      // Handle signing tools
-      const signResult = await handleSignRequest(name, args as Record<string, unknown>);
-      if (signResult) {
-        return signResult;
-      }
-
-      // Handle approvals
-      if (name === 'wallet_approvals') {
-        return await handleApprovalsRequest(args as Record<string, unknown>);
-      }
-
-      // Handle spending tools
-      const spendingResult = handleSpendingToolRequest(name, args);
-      if (spendingResult) {
-        return spendingResult;
-      }
-
-      // Handle Herd-powered analysis
-      if (name === 'wallet_analyze_contract') {
-        return await handleAnalyzeContract(args as Record<string, unknown>);
-      }
-
-      // Handle swap
-      if (name === 'wallet_swap') {
-        return await handleSwapRequest(args as Record<string, unknown>);
-      }
-
-      // Handle yield opportunities
-      if (name === 'wallet_opportunities') {
-        return await handleOpportunitiesRequest(args as Record<string, unknown>);
-      }
-
-      // Handle two-phase contract execution
-      if (name === 'wallet_call') {
-        return await handleCallRequest(args as Record<string, unknown>);
-      }
-      if (name === 'wallet_executePrepared') {
-        return await handleExecutePreparedRequest(args as Record<string, unknown>);
-      }
-
-      // Handle x402 payment tool
-      if (name === 'wallet_pay_x402') {
-        return await handleX402Payment(args as Record<string, unknown>);
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Unknown tool: ${name}`,
-          },
-        ],
-        isError: true,
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          },
-        ],
-        isError: true,
-      };
-    }
+    return dispatch(name, args as Record<string, unknown>);
   });
 
   return server;
-}
-
-/**
- * Handle x402 payment requests
- */
-async function handleX402Payment(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
-  const url = args.url as string;
-  const method = (args.method as string) || 'GET';
-  const body = args.body as string | undefined;
-  const headers = args.headers as Record<string, string> | undefined;
-  const maxAmountUsd = (args.maxAmountUsd as string) || '1.00';
-  const skipApprovalCheck = (args.skipApprovalCheck as boolean) || false;
-
-  if (!url) {
-    return {
-      content: [{ type: 'text', text: '❌ Error: url is required' }],
-      isError: true,
-    };
-  }
-
-  try {
-    // Load Para client
-    let paraClient: ParaClient;
-    try {
-      const paraConfig = loadParaConfig();
-      paraClient = new ParaClient(paraConfig);
-    } catch (configError) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `❌ Wallet not configured.\n\nSet these environment variables:\n- CLARA_PROXY_URL: Your clara-proxy URL\n- PARA_WALLET_ID: Your Para wallet ID\n\nError: ${configError instanceof Error ? configError.message : 'Unknown'}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    // Get wallet address from session (more reliable than API call)
-    const session = await getSession();
-    if (!session?.authenticated || !session.address) {
-      return {
-        content: [{
-          type: 'text',
-          text: '❌ No wallet session found. Run `wallet_setup` first.',
-        }],
-        isError: true,
-      };
-    }
-    const walletAddress = session.address as Hex;
-
-    // Create x402 client with Para signing
-    const x402Client = new X402Client(
-      (domain, types, value) => paraClient.signTypedData(domain, types, value),
-      async () => walletAddress
-    );
-
-    // Make initial request to check if it's 402
-    const initialResponse = await fetch(url, {
-      method,
-      headers,
-      body,
-    });
-
-    // If not 402, return the response directly
-    if (initialResponse.status !== 402) {
-      const content = await initialResponse.text();
-      return {
-        content: [
-          {
-            type: 'text',
-            text: initialResponse.ok
-              ? content
-              : `Response (${initialResponse.status}):\n\n${content}`,
-          },
-        ],
-        isError: !initialResponse.ok,
-      };
-    }
-
-    // Parse payment details from 402 response
-    const paymentDetails = x402Client.parsePaymentRequired(initialResponse);
-    if (!paymentDetails) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: '❌ Received 402 response but could not parse payment details.\n\nThe server may not be using the x402 protocol.',
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    // Convert amount to USD
-    const amountUsd = x402Client.tokenAmountToUsd(
-      paymentDetails.amount,
-      paymentDetails.token
-    );
-
-    // Check spending limits
-    const limitCheck = checkSpendingLimits(amountUsd);
-
-    if (!limitCheck.allowed) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `❌ Payment blocked: ${limitCheck.reason}\n\n${formatSpendingSummary()}\n\nTo proceed, increase your spending limits with wallet_spending_limits.`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    // Check if approval is required
-    if (limitCheck.requiresApproval && !skipApprovalCheck) {
-      const details = [
-        `💰 Payment Required: $${amountUsd} USDC`,
-        '',
-        `URL: ${url}`,
-        `Recipient: ${paymentDetails.recipient}`,
-        `Description: ${paymentDetails.description || 'None provided'}`,
-        `Chain: Base (${paymentDetails.chainId})`,
-        '',
-        `Today's spending: $${limitCheck.todayTotal.toFixed(2)}`,
-        `Remaining today: $${limitCheck.remainingToday.toFixed(2)}`,
-        '',
-        '⚠️  This payment requires approval because it exceeds $0.50.',
-        '',
-        'To approve, run this tool again with `skipApprovalCheck: true`',
-      ];
-
-      return {
-        content: [{ type: 'text', text: details.join('\n') }],
-        isError: false,
-      };
-    }
-
-    // Check max amount specified by caller
-    if (parseFloat(amountUsd) > parseFloat(maxAmountUsd)) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `❌ Payment amount ($${amountUsd}) exceeds your specified maximum ($${maxAmountUsd}).\n\nIncrease maxAmountUsd to proceed.`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    // Execute payment
-    const result = await x402Client.payAndFetch(url, {
-      method,
-      headers,
-      body,
-      maxAmountUsd,
-    });
-
-    if (!result.success) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `❌ Payment failed: ${result.error}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    // Record the spending
-    recordSpending({
-      timestamp: new Date().toISOString(),
-      amountUsd,
-      recipient: paymentDetails.recipient,
-      description: paymentDetails.description || url,
-      url,
-      chainId: paymentDetails.chainId,
-      paymentId: paymentDetails.paymentId,
-    });
-
-    // Get response content
-    const responseContent = result.response
-      ? await result.response.text()
-      : '';
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✅ Payment successful: $${amountUsd} USDC\n\n---\n\n${responseContent}`,
-        },
-      ],
-    };
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        },
-      ],
-      isError: true,
-    };
-  }
 }
 
 /**
@@ -446,6 +236,12 @@ async function handleX402Payment(
  * even if provider initialization is slow (network calls, etc.).
  */
 async function main(): Promise<void> {
+  // Validate config (warnings only — don't block startup)
+  const configErrors = validateConfig();
+  for (const err of configErrors) {
+    console.error(`[clara] Warning: ${err}`);
+  }
+
   const server = createServer();
   const transport = new StdioServerTransport();
 

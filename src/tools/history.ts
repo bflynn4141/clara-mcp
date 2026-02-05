@@ -10,8 +10,8 @@
  */
 
 import { type Hex } from 'viem';
-import { getSession, touchSession } from '../storage/session.js';
 import { getProviderRegistry, type TransactionSummary } from '../providers/index.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 
 // Zerion API key for fallback
 const ZERION_API_KEY = process.env.ZERION_API_KEY;
@@ -303,23 +303,13 @@ function formatProviderTransaction(tx: TransactionSummary): string {
  * Handle wallet_history requests
  */
 export async function handleHistoryRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const chainInput = (args.chain as string) || 'base';
   const limit = Math.min((args.limit as number) || 10, 50);
 
-  // Check session
-  const session = await getSession();
-  if (!session?.authenticated || !session.address) {
-    return {
-      content: [{ type: 'text', text: '❌ Wallet not configured. Run `wallet_setup` first.' }],
-      isError: true,
-    };
-  }
-
-  await touchSession();
-
-  const address = session.address;
+  const address = ctx.session.address!;
 
   // Check for Zerion API key
   if (!ZERION_API_KEY) {

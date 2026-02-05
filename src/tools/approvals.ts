@@ -15,8 +15,8 @@ import {
   encodeFunctionData,
   type Hex,
 } from 'viem';
-import { getSession, touchSession } from '../storage/session.js';
 import { signAndSendTransaction } from '../para/transactions.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 import { CHAINS, getRpcUrl, isSupportedChain, type SupportedChain } from '../config/chains.js';
 
 /**
@@ -189,8 +189,9 @@ function formatAllowance(amount: bigint, decimals: number): string {
  * Handle wallet_approvals requests
  */
 export async function handleApprovalsRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const action = (args.action as string) || 'view';
   const chainName = (args.chain as string) || 'base';
   const tokenInput = args.token as string | undefined;
@@ -206,18 +207,8 @@ export async function handleApprovalsRequest(
     };
   }
 
-  // Check session
-  const session = await getSession();
-  if (!session?.authenticated || !session.walletId || !session.address) {
-    return {
-      content: [{ type: 'text', text: '❌ Wallet not configured. Run `wallet_setup` first.' }],
-      isError: true,
-    };
-  }
-
-  await touchSession();
-
-  const owner = session.address as Hex;
+  const session = ctx.session;
+  const owner = ctx.walletAddress;
   const chainConfig = CHAINS[chainName];
   const tokens = TOKENS[chainName];
   const spenders = KNOWN_SPENDERS[chainName];
@@ -366,7 +357,7 @@ export async function handleApprovalsRequest(
       });
 
       // Send revoke transaction
-      const result = await signAndSendTransaction(session.walletId, {
+      const result = await signAndSendTransaction(session.walletId!, {
         to: tokenAddress,
         value: 0n,
         data,

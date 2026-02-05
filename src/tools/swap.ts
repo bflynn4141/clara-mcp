@@ -11,7 +11,7 @@
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { encodeFunctionData, createPublicClient, http, formatEther, type Hex } from 'viem';
+import { createPublicClient, http, encodeFunctionData, type Hex } from 'viem';
 import {
   getSwapQuote,
   executeSwap,
@@ -20,8 +20,8 @@ import {
   parseAmountToBigInt,
   type SwapQuote,
 } from '../para/swap.js';
-import { getSession } from '../storage/session.js';
 import { signAndSendTransaction } from '../para/transactions.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 import { type SupportedChain, isSupportedChain, getChainId, getRpcUrl, CHAINS } from '../config/chains.js';
 import { getProviderRegistry, isHerdEnabled } from '../providers/index.js';
 import {
@@ -31,6 +31,8 @@ import {
   type HerdCheckResult,
 } from '../cache/quotes.js';
 import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
+import { requireGas } from '../gas-preflight.js';
+import { ClaraError, ClaraErrorCode } from '../errors.js';
 
 // Supported chains for swaps
 const SWAP_CHAINS = ['ethereum', 'base', 'arbitrum', 'optimism', 'polygon'] as const;
@@ -261,8 +263,9 @@ function capitalize(s: string): string {
  * 2. Execute mode: Uses cached quote, applies Herd policy gate, auto-approves if needed
  */
 export async function handleSwapRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const fromToken = args.fromToken as string | undefined;
   const toToken = args.toToken as string | undefined;
   const amount = args.amount as string | undefined;
@@ -272,20 +275,9 @@ export async function handleSwapRequest(
   const rawSlippage = (args.slippage as number) ?? 0.5;
   const slippage = Math.min(rawSlippage, 15);
 
+  const session = ctx.session;
+
   try {
-    // Check session first
-    const session = await getSession();
-    if (!session?.authenticated || !session.address || !session.walletId) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: '❌ No wallet configured. Run wallet_setup first.',
-          },
-        ],
-        isError: true,
-      };
-    }
 
     // Minimum swap amount to cover gas overhead
     const MIN_SWAP_USD = 0.05;
@@ -297,7 +289,7 @@ export async function handleSwapRequest(
 
     // If quoteId provided, use cached quote (route locking)
     if (quoteIdArg) {
-      const cached = getCachedQuote(quoteIdArg, session.address);
+      const cached = getCachedQuote(quoteIdArg, session.address!);
       if ('error' in cached) {
         return {
           content: [{ type: 'text', text: `❌ ${cached.error}` }],
@@ -365,7 +357,7 @@ export async function handleSwapRequest(
     // QUOTE MODE - Cache quote and return details with quoteId
     // ═══════════════════════════════════════════════════════════════
     if (action === 'quote') {
-      const newQuoteId = cacheQuote(quote, chain, session.address, {
+      const newQuoteId = cacheQuote(quote, chain, session.address!, {
         routerRisk,
         verified: safetyInfo.verified ?? false,
         checkedAt: Date.now(),
@@ -438,32 +430,32 @@ export async function handleSwapRequest(
       };
     }
 
-    // Pre-flight ETH balance check for gas
-    const estimatedGasUsd = parseFloat(quote.estimatedGasUsd || '0');
-    if (estimatedGasUsd > 0) {
+    // Gas pre-flight check (replaces the old zero-balance check)
+    const isNativeFrom = quote.fromToken.symbol === 'ETH' || quote.fromToken.symbol === 'MATIC';
+    await requireGas(chain, ctx.walletAddress, {
+      txValue: isNativeFrom ? parseAmountToBigInt(quote.fromAmount, 18) : 0n,
+      gasLimit: 500_000n, // Swap routers use more gas than simple transfers
+    });
+
+    // Simulate the swap transaction before committing
+    if (quote.transactionRequest) {
+      const viemChain = CHAINS[chain].chain;
+      const simClient = createPublicClient({
+        chain: viemChain,
+        transport: http(getRpcUrl(chain)),
+      });
       try {
-        const publicClient = createPublicClient({
-          chain: CHAINS[chain].chain,
-          transport: http(getRpcUrl(chain)),
+        await simClient.call({
+          account: ctx.walletAddress,
+          to: quote.transactionRequest.to as Hex,
+          data: quote.transactionRequest.data as Hex,
+          value: quote.transactionRequest.value ? BigInt(quote.transactionRequest.value) : 0n,
         });
-        const ethBalance = await publicClient.getBalance({ address: session.address as Hex });
-        // Rough check: need at least estimated gas * 2 in ETH (safety margin)
-        // Convert gas USD to ETH rough estimate: gasUsd / ethPrice
-        // Use a conservative check: if balance is near zero, warn
-        if (ethBalance === 0n) {
-          return {
-            content: [{
-              type: 'text',
-              text: `❌ No native ETH balance on ${chain} to pay for gas (~$${quote.estimatedGasUsd}). Deposit ETH first.`,
-            }],
-            isError: true,
-          };
-        }
-        // Log for diagnostics
-        console.error(`[clara] ETH balance for gas: ${formatEther(ethBalance)} ETH`);
-      } catch (e) {
-        // Non-fatal: proceed with swap, let the RPC reject if truly insufficient
-        console.error(`[clara] Gas balance pre-check failed: ${e}`);
+      } catch (simError: any) {
+        // Swap simulation is advisory, not blocking — DEX router calldata
+        // often fails in eth_call due to delegatecalls and external connectors.
+        // Log the warning and proceed with the swap.
+        console.error(`[clara] Swap simulation warning: ${simError.shortMessage || simError.message}`);
       }
     }
 
@@ -489,7 +481,7 @@ export async function handleSwapRequest(
         args: [quote.approvalAddress as Hex, approvalAmount],
       });
 
-      const approvalResult = await signAndSendTransaction(session.walletId, {
+      const approvalResult = await signAndSendTransaction(session.walletId!, {
         to: quote.fromToken.address as Hex,
         value: 0n,
         data: approveData,

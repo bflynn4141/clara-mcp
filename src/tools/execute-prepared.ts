@@ -13,10 +13,11 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { Hex } from 'viem';
-import { getSession } from '../storage/session.js';
 import { signAndSendTransaction, type TransactionParams } from '../para/transactions.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 import { getPreparedTx, deletePreparedTx, formatPreparedTx } from '../para/prepared-tx.js';
 import { type SupportedChain } from '../config/chains.js';
+import { requireGas } from '../gas-preflight.js';
 
 // Explorer URLs by chain
 const EXPLORERS: Record<SupportedChain, string> = {
@@ -70,8 +71,9 @@ export const executePreparedToolDefinition: Tool = {
  * Handle wallet_executePrepared requests
  */
 export async function handleExecutePreparedRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const preparedTxId = args.preparedTxId as string;
   const force = (args.force as boolean) || false;
 
@@ -84,14 +86,7 @@ export async function handleExecutePreparedRequest(
       };
     }
 
-    // Check session
-    const session = await getSession();
-    if (!session?.authenticated || !session.walletId) {
-      return {
-        content: [{ type: 'text', text: '❌ No wallet connected. Run wallet_setup first.' }],
-        isError: true,
-      };
-    }
+    const session = ctx.session;
 
     // Get prepared transaction
     const preparedTx = getPreparedTx(preparedTxId);
@@ -122,6 +117,14 @@ export async function handleExecutePreparedRequest(
       };
     }
 
+    // Gas pre-flight check
+    await requireGas(preparedTx.chain, ctx.walletAddress, {
+      txValue: preparedTx.value,
+      gasLimit: preparedTx.simulation.gasEstimate
+        ? (preparedTx.simulation.gasEstimate * 150n) / 100n  // Match the 50% buffer below
+        : 200_000n,
+    });
+
     // Build transaction params
     const txParams: TransactionParams = {
       to: preparedTx.to,
@@ -139,7 +142,7 @@ export async function handleExecutePreparedRequest(
       `[clara] Executing prepared tx ${preparedTxId}: ${preparedTx.functionSignature} on ${preparedTx.chain}`
     );
 
-    const result = await signAndSendTransaction(session.walletId, txParams);
+    const result = await signAndSendTransaction(session.walletId!, txParams);
 
     // Delete the prepared transaction (one-time use)
     deletePreparedTx(preparedTxId);

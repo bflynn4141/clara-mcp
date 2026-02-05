@@ -6,7 +6,7 @@
  */
 
 import { type Hex, hashTypedData } from 'viem';
-import { getSession, touchSession } from '../storage/session.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
 
 // Para API base URL
 const PARA_API_BASE = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
@@ -191,8 +191,9 @@ async function signTypedData(
  * Handle wallet_sign_typed_data requests
  */
 export async function handleSignTypedDataRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const domain = args.domain as Record<string, unknown> | undefined;
   const types = args.types as Record<string, Array<{ name: string; type: string }>> | undefined;
   const primaryType = args.primaryType as string | undefined;
@@ -209,25 +210,16 @@ export async function handleSignTypedDataRequest(
     };
   }
 
-  // Check session
-  const session = await getSession();
-  if (!session?.authenticated || !session.walletId) {
-    return {
-      content: [{ type: 'text', text: '❌ Wallet not configured. Run `wallet_setup` first.' }],
-      isError: true,
-    };
-  }
-
-  await touchSession();
+  const session = ctx.session;
 
   try {
     const signature = await signTypedData(
-      session.walletId,
+      session.walletId!,
       domain,
       types,
       primaryType,
       message,
-      session.address
+      session.address,
     );
 
     // Format output
@@ -270,8 +262,9 @@ export async function handleSignTypedDataRequest(
  * Handle wallet_sign_message requests
  */
 export async function handleSignMessageRequest(
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
   const message = args.message as string;
 
   // Validate message
@@ -289,19 +282,10 @@ export async function handleSignMessageRequest(
     };
   }
 
-  // Check session
-  const session = await getSession();
-  if (!session?.authenticated || !session.walletId) {
-    return {
-      content: [{ type: 'text', text: '❌ Wallet not configured. Run `wallet_setup` first.' }],
-      isError: true,
-    };
-  }
-
-  await touchSession();
+  const session = ctx.session;
 
   try {
-    const signature = await signMessage(session.walletId, message, session.address);
+    const signature = await signMessage(session.walletId!, message, session.address);
 
     return {
       content: [{
@@ -334,18 +318,4 @@ export async function handleSignMessageRequest(
   }
 }
 
-/**
- * Unified handler for sign tools
- */
-export async function handleSignRequest(
-  name: string,
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean } | null> {
-  if (name === 'wallet_sign_message') {
-    return handleSignMessageRequest(args);
-  }
-  if (name === 'wallet_sign_typed_data') {
-    return handleSignTypedDataRequest(args);
-  }
-  return null;
-}
+// handleSignRequest dispatch removed — registry handles dispatch directly
