@@ -65,6 +65,10 @@ import {
   swapToolDefinition,
   handleSwapRequest,
 } from './tools/swap.js';
+import {
+  opportunitiesToolDefinition,
+  handleOpportunitiesRequest,
+} from './tools/opportunities.js';
 
 // Two-phase contract execution (wallet_call + wallet_executePrepared)
 import {
@@ -100,6 +104,7 @@ const TOOLS = [
   analyzeContractToolDefinition,
   // DeFi
   swapToolDefinition,
+  opportunitiesToolDefinition,
   // Two-phase contract execution
   callToolDefinition,
   executePreparedToolDefinition,
@@ -179,6 +184,11 @@ function createServer(): Server {
       // Handle swap
       if (name === 'wallet_swap') {
         return await handleSwapRequest(args as Record<string, unknown>);
+      }
+
+      // Handle yield opportunities
+      if (name === 'wallet_opportunities') {
+        return await handleOpportunitiesRequest(args as Record<string, unknown>);
       }
 
       // Handle two-phase contract execution
