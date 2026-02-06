@@ -32,3 +32,6 @@ coverage/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+
+# Contract environment (private keys, API keys)
+contracts/.env

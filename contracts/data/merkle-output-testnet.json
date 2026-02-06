@@ -1,0 +1,42 @@
+{
+  "root": "0xfdbc4f010fbfd47ac317b41246e4f669ccecc31f8fa95968063abc8aa3ddeecf",
+  "totalAmount": "10000000000000000000000000",
+  "recipients": [
+    {
+      "index": 0,
+      "account": "0x7C5FA16118Df518AD0fF27eB108FE5C08f46E994",
+      "amount": "5000000000000000000000000",
+      "proof": [
+        "0x3e1f8f2ab1a2ccc7717ce704fcf16bf2546ae0d24da63dadc2ea995f73d5d890",
+        "0x6eaf434328c41a706649ce3ff6d47eb045af8ede58bc27ef4535776f41010a31"
+      ]
+    },
+    {
+      "index": 1,
+      "account": "0x8744baf00f5ad7ffccc56c25fa5aa9270e2caffd",
+      "amount": "3000000000000000000000000",
+      "proof": [
+        "0x3891e97b7db55e12a93822314a5924ba7738663ca0b6126a5f558d05a5bea36f",
+        "0x6eaf434328c41a706649ce3ff6d47eb045af8ede58bc27ef4535776f41010a31"
+      ]
+    },
+    {
+      "index": 2,
+      "account": "0x0000000000000000000000000000000000000001",
+      "amount": "1000000000000000000000000",
+      "proof": [
+        "0xf3d660925ff327d376f283e05f914314ecfc21eac5f65ae80d5d3b52f132ec67",
+        "0x8ccc9dff6af3d621ffa30b7a9bf77ba7ff4ab8906fdcd20c9fbd90bd03c69957"
+      ]
+    },
+    {
+      "index": 3,
+      "account": "0x0000000000000000000000000000000000000002",
+      "amount": "1000000000000000000000000",
+      "proof": [
+        "0x4db86042c21af3558cf78a9b35d5dd45f1c3b059dc48c2ac2db1696519d85577",
+        "0x8ccc9dff6af3d621ffa30b7a9bf77ba7ff4ab8906fdcd20c9fbd90bd03c69957"
+      ]
+    }
+  ]
+}
