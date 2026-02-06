@@ -1,72 +1,48 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ClaraCredits.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import "../src/ClaraToken.sol";
+import "../src/ClaraStaking.sol";
 
-/**
- * @title ClaraCredits Deployment Script
- * @notice Deploy ClaraCredits to Base Mainnet or Sepolia
- *
- * Usage:
- *   # Deploy to Base Sepolia (testnet)
- *   forge script script/Deploy.s.sol:DeployClaraCredits \
- *     --rpc-url https://sepolia.base.org \
- *     --broadcast \
- *     --verify
- *
- *   # Deploy to Base Mainnet
- *   forge script script/Deploy.s.sol:DeployClaraCredits \
- *     --rpc-url https://mainnet.base.org \
- *     --broadcast \
- *     --verify
- *
- * Environment variables:
- *   PRIVATE_KEY - Deployer private key
- *   ETHERSCAN_API_KEY - For contract verification on Basescan
- */
-contract DeployClaraCredits is Script {
-    // USDC addresses
-    address constant BASE_MAINNET_USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
-    address constant BASE_SEPOLIA_USDC = 0x036CbD53842c5426634e7929541eC2318f3dCF7e; // Bridged USDC on Sepolia
+contract DeployCLARA is Script {
+    address constant USDC_BASE = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
     function run() external {
-        // Determine USDC address based on chain ID
-        uint256 chainId = block.chainid;
-        address usdc;
+        address deployer = msg.sender;
+        address feeSource = vm.envAddress("FEE_SOURCE");
+        address guardian = vm.envAddress("GUARDIAN");
 
-        if (chainId == 8453) {
-            // Base Mainnet
-            usdc = BASE_MAINNET_USDC;
-            console.log("Deploying to Base Mainnet");
-        } else if (chainId == 84532) {
-            // Base Sepolia
-            usdc = BASE_SEPOLIA_USDC;
-            console.log("Deploying to Base Sepolia");
-        } else {
-            revert("Unsupported chain - use Base Mainnet (8453) or Base Sepolia (84532)");
-        }
-
-        console.log("USDC address:", usdc);
-
-        // Start broadcast
         vm.startBroadcast();
 
-        // Deploy ClaraCredits
-        ClaraCredits credits = new ClaraCredits(usdc);
+        // 1. Deploy ClaraToken (immutable, no proxy)
+        ClaraToken token = new ClaraToken(deployer);
+        console.log("ClaraToken deployed at:", address(token));
 
-        console.log("ClaraCredits deployed at:", address(credits));
-        console.log("Owner:", credits.owner());
+        // 2. Deploy ClaraStaking implementation
+        ClaraStaking stakingImpl = new ClaraStaking();
+        console.log("ClaraStaking impl at:", address(stakingImpl));
+
+        // 3. Deploy ClaraStaking proxy
+        ERC1967Proxy stakingProxy = new ERC1967Proxy(
+            address(stakingImpl),
+            abi.encodeCall(ClaraStaking.initialize, (
+                address(token),
+                USDC_BASE,
+                feeSource,
+                guardian
+            ))
+        );
+        console.log("ClaraStaking proxy at:", address(stakingProxy));
 
         vm.stopBroadcast();
 
-        // Log next steps
         console.log("\n=== Next Steps ===");
-        console.log("1. Update CLARA_CREDITS_ADDRESS in:");
-        console.log("   - clara-proxy/src/index.js");
-        console.log("   - clara-mcp/src/tools/credits.ts");
-        console.log("2. Authorize the proxy as a spender:");
-        console.log("   credits.setProxyAuthorization(PROXY_ADDRESS, true)");
-        console.log("3. Test deposit and spending flow");
+        console.log("1. Transfer ClaraToken supply to treasury multisig");
+        console.log("2. Deploy TimelockController (7-day delay)");
+        console.log("3. Transfer ClaraStaking ownership to timelock");
+        console.log("4. Configure x402 facilitator settlement address");
+        console.log("5. Verify all contracts on BaseScan");
     }
 }

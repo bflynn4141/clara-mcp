@@ -44,17 +44,6 @@ vi.mock('../../para/transactions.js', () => ({
   signAndSendTransaction: vi.fn(),
 }));
 
-// Mock viem (for credits section RPC calls)
-vi.mock('viem', async () => {
-  const actual = await vi.importActual('viem');
-  return {
-    ...actual,
-    createPublicClient: vi.fn(() => ({
-      readContract: vi.fn().mockResolvedValue(0n),
-    })),
-  };
-});
-
 import { setupWallet, getWalletStatus, logout } from '../../para/client.js';
 import { getSession, touchSession } from '../../storage/session.js';
 

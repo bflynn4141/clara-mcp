@@ -43,7 +43,7 @@ export async function signRawHash(
     'Content-Type': 'application/json',
   };
 
-  // Include address header for credit checking
+  // Include address header for authentication
   if (userAddress) {
     headers['X-Clara-Address'] = userAddress;
   }
@@ -65,13 +65,12 @@ export async function signRawHash(
       try {
         const errorData = JSON.parse(errorText);
         throw new Error(
-          `Insufficient credits. ${errorData.message || ''}\n` +
-          `Deposit USDC to: ${errorData.contract || 'ClaraCredits contract'}\n` +
-          `Min deposit: ${errorData.minDeposit || '$0.10'}`
+          `Payment required. ${errorData.message || 'This operation requires x402 payment.'}\n` +
+          `Use wallet_pay_x402 to pay for gated resources.`
         );
       } catch (e) {
         if (e instanceof SyntaxError) {
-          throw new Error('Insufficient credits. Please deposit USDC to use signing operations.');
+          throw new Error('Payment required. Ensure your wallet has USDC on Base for x402 auto-payments.');
         }
         throw e;
       }

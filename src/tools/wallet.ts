@@ -6,8 +6,6 @@
  */
 
 import { z } from 'zod';
-import { createPublicClient, http, formatUnits, type Hex } from 'viem';
-import { base } from 'viem/chains';
 import { setupWallet, getWalletStatus, logout } from '../para/client.js';
 import { formatSpendingSummary } from '../storage/spending.js';
 import { getSession, touchSession } from '../storage/session.js';
@@ -53,7 +51,6 @@ export const statusToolDefinition = {
 - Your wallet address and identity binding
 - Supported chains and session age
 - Current spending limits
-- Clara Credits balance and available operations
 
 Use \`debug: true\` to include auth header diagnostics and optional connection test.`,
   inputSchema: {
@@ -115,17 +112,15 @@ export async function handleSetupRequest(
 
     lines.push('');
     lines.push('**⚡ Get Started:**');
-    lines.push('1. **Add credits** - Deposit USDC to use signing operations');
-    lines.push('   - Run `wallet_status` to see your credit balance and deposit instructions');
-    lines.push('   - Minimum deposit: $0.10, each operation costs $0.001');
-    lines.push('2. **Start using** - `wallet_pay_x402` for payments, `wallet_balance` for balances');
+    lines.push('1. **Start using** - `wallet_send`, `wallet_swap`, `wallet_call` for DeFi operations');
+    lines.push('2. **x402 payments** - Write operations auto-pay ~$0.01 USDC via x402 (first 25 ops free)');
     lines.push('');
     lines.push('**🎯 Recommended next step:**');
     lines.push('Run `wallet_briefing` to get a personalized summary of your wallet activity and opportunities.');
     lines.push('');
     lines.push('**Useful commands:**');
     lines.push('- `wallet_briefing` - Get wallet insights and opportunities');
-    lines.push('- `wallet_status` - View wallet details and credit balance');
+    lines.push('- `wallet_status` - View wallet details and spending limits');
     lines.push('- `wallet_spending_limits` - Configure spending controls');
 
     return {
@@ -142,31 +137,8 @@ export async function handleSetupRequest(
   }
 }
 
-// ── ClaraCredits contract constants (from credits.ts) ──
-const CLARA_CREDITS_ADDRESS: Hex = '0x423F12752a7EdbbB17E9d539995e85b921844d8D';
-const BASE_RPC = 'https://mainnet.base.org';
-const COST_PER_OPERATION = 1000n; // $0.001 in 6-decimal USDC
-const MIN_DEPOSIT = 100000n; // $0.10 in 6-decimal USDC
-
-const CREDITS_ABI = [
-  {
-    inputs: [{ name: 'user', type: 'address' }],
-    name: 'credits',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'user', type: 'address' }],
-    name: 'availableOperations',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
-
 /**
- * Handle wallet_status (consolidated from session-status, debug-auth, credits)
+ * Handle wallet_status (consolidated from session-status, debug-auth)
  */
 export async function handleStatusRequest(
   args: Record<string, unknown>
@@ -236,10 +208,6 @@ export async function handleStatusRequest(
     lines.push('**Spending Limits:**');
     lines.push(formatSpendingSummary());
 
-    // ── Credits (from credits.ts) ──
-    lines.push('');
-    lines.push(await formatCreditsSection(status.address as string));
-
     // ── Debug auth (from debug-auth.ts, opt-in) ──
     if (debug) {
       lines.push('');
@@ -261,63 +229,6 @@ export async function handleStatusRequest(
       }],
       isError: true,
     };
-  }
-}
-
-// ── Helper: Format credits section ──
-
-async function formatCreditsSection(address: string): Promise<string> {
-  const hexAddress = address as Hex;
-
-  if (CLARA_CREDITS_ADDRESS === '0x0000000000000000000000000000000000000000') {
-    return [
-      '**Credits:** Contract not yet deployed (all operations free during beta)',
-    ].join('\n');
-  }
-
-  try {
-    const client = createPublicClient({
-      chain: base,
-      transport: http(BASE_RPC),
-    });
-
-    const [creditBalance, availableOps] = await Promise.all([
-      client.readContract({
-        address: CLARA_CREDITS_ADDRESS,
-        abi: CREDITS_ABI,
-        functionName: 'credits',
-        args: [hexAddress],
-      }),
-      client.readContract({
-        address: CLARA_CREDITS_ADDRESS,
-        abi: CREDITS_ABI,
-        functionName: 'availableOperations',
-        args: [hexAddress],
-      }),
-    ]);
-
-    const balanceUSD = formatUnits(creditBalance, 6);
-    const balanceNum = parseFloat(balanceUSD);
-
-    const lines = [
-      '**Clara Credits:**',
-      `- Balance: $${balanceNum.toFixed(4)} USDC`,
-      `- Available operations: ${availableOps.toLocaleString()}`,
-      `- Cost per operation: $0.001`,
-    ];
-
-    if (creditBalance === 0n) {
-      lines.push('');
-      lines.push(`**Deposit:** Send USDC to \`${CLARA_CREDITS_ADDRESS}\` on Base (min $0.10)`);
-      lines.push(`[Deposit on BaseScan](https://basescan.org/address/${CLARA_CREDITS_ADDRESS}#writeContract)`);
-    } else if (availableOps < 10n) {
-      lines.push('');
-      lines.push(`Low credits. [Add more on BaseScan](https://basescan.org/address/${CLARA_CREDITS_ADDRESS}#writeContract)`);
-    }
-
-    return lines.join('\n');
-  } catch (error) {
-    return `**Credits:** Unable to fetch (${error instanceof Error ? error.message : 'Unknown error'})`;
   }
 }
 

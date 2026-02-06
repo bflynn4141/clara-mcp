@@ -352,7 +352,7 @@ export async function handleDashboardRequest(
     lines.push('- `wallet_balance chain="base"` - Detailed balance for a specific chain');
     lines.push('- `wallet_briefing` - AI-powered insights on your holdings');
     lines.push('- `wallet_opportunities` - Find yield opportunities for your positions');
-    lines.push('- `wallet_credits` - Check signing credits');
+    lines.push('- `wallet_history` - View transaction history');
 
     // Build structured data for programmatic use
     const structuredData = {
