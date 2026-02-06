@@ -556,6 +556,16 @@ interface HerdContractMetadata {
     totalSupply?: number;
     currentPriceUsd?: number;
     marketCapUsd?: number;
+    topHolders?: Array<{
+      rank: number;
+      address: string;
+      balance: number;
+      sharePercentage: number;
+      type: string;
+      name?: string;
+      entityLabel?: string;
+      coingeckoLabel?: string;
+    }>;
   };
   historicalImplementations?: Array<{
     versionNumber: number;
@@ -831,6 +841,16 @@ export class HerdContractIntelProvider implements ContractIntelProvider {
         totalSupply: data.tokenDetails.totalSupply?.toString(),
         priceUsd: data.tokenDetails.currentPriceUsd?.toString(),
         marketCapUsd: data.tokenDetails.marketCapUsd?.toString(),
+        topHolders: data.tokenDetails.topHolders
+          ?.filter(h => h.type === 'contract' && h.sharePercentage > 0.1)
+          .map(h => ({
+            address: h.address,
+            sharePercentage: h.sharePercentage,
+            type: h.type,
+            name: h.name,
+            entityLabel: h.entityLabel,
+            coingeckoLabel: h.coingeckoLabel,
+          })),
       } : undefined,
       proxy: data.historicalImplementations && data.historicalImplementations.length > 0 ? {
         isProxy: true,

@@ -156,6 +156,12 @@ const memoryCache = new LRUCache<string, CacheEntry>(DEFAULT_CONFIG.maxMemoryEnt
 // ============================================================================
 
 /**
+ * Schema version — bump this when ContractMetadata/TokenInfo types change.
+ * This auto-invalidates stale cache entries that lack new fields (e.g., topHolders).
+ */
+const SCHEMA_VERSION = 2;
+
+/**
  * Generate cache key for contract metadata
  * For proxy contracts, include implementation address to avoid serving stale ABIs after upgrades
  */
@@ -167,7 +173,7 @@ export function generateCacheKey(
 ): string {
   const normalizedAddress = address.toLowerCase();
   const implSuffix = implementationAddress ? `:impl:${implementationAddress.toLowerCase()}` : '';
-  return `${chainId}:${normalizedAddress}:${blockTag}${implSuffix}`;
+  return `v${SCHEMA_VERSION}:${chainId}:${normalizedAddress}:${blockTag}${implSuffix}`;
 }
 
 /**

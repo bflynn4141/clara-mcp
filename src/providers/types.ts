@@ -234,6 +234,18 @@ export interface EventInfo {
 }
 
 /**
+ * A top holder of a token (from Herd's contractMetadataTool)
+ */
+export interface TokenHolder {
+  address: string;
+  sharePercentage: number;
+  type: string;           // "contract" | "wallet"
+  name?: string;          // e.g., "VotingEscrow"
+  entityLabel?: string;   // e.g., "aerodrome"
+  coingeckoLabel?: string; // e.g., "Volatile AMM - USDC/AERO"
+}
+
+/**
  * Token metadata (if contract is a token)
  */
 export interface TokenInfo {
@@ -245,6 +257,7 @@ export interface TokenInfo {
   priceUsd?: string;
   marketCapUsd?: string;
   holders?: number;
+  topHolders?: TokenHolder[];
 }
 
 /**

@@ -146,6 +146,16 @@ function findFunctions(abi: Abi, funcName: string): AbiFunction[] {
  * Coerce argument to expected type
  */
 function coerceArg(value: unknown, type: string): unknown {
+  // Arrays FIRST — must check before scalar types since
+  // "uint256[]".startsWith("uint") is true but it's an array type
+  if (type.endsWith('[]')) {
+    const baseType = type.slice(0, -2);
+    if (Array.isArray(value)) {
+      return value.map((v) => coerceArg(v, baseType));
+    }
+    throw new Error(`Expected array for ${type}`);
+  }
+
   // Address coercion
   if (type === 'address') {
     if (typeof value === 'string' && value.startsWith('0x')) {
@@ -183,15 +193,6 @@ function coerceArg(value: unknown, type: string): unknown {
       return value as Hex;
     }
     throw new Error(`Invalid bytes: ${value}`);
-  }
-
-  // Arrays - recursively coerce
-  if (type.endsWith('[]')) {
-    const baseType = type.slice(0, -2);
-    if (Array.isArray(value)) {
-      return value.map((v) => coerceArg(v, baseType));
-    }
-    throw new Error(`Expected array for ${type}`);
   }
 
   // Default: return as-is
