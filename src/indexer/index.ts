@@ -9,6 +9,7 @@ export { syncFromChain, startPolling, stopPolling, getIndex } from './sync.js';
 export {
   getOpenBounties,
   getBountyByAddress,
+  getBountyByTxHash,
   getBountiesByPoster,
   getBountiesByClaimer,
   getIndexStats,

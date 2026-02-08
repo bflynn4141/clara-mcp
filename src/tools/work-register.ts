@@ -14,7 +14,6 @@ import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import {
   toDataUri,
   formatAddress,
-  indexerFetch,
   saveLocalAgentId,
 } from './work-helpers.js';
 
@@ -108,33 +107,11 @@ export async function handleWorkRegister(
       chainId: getChainId('base'),
     });
 
-    // Index the agent in the Clara indexer (best-effort)
-    let agentId: number | null = null;
-    try {
-      const indexerResp = await indexerFetch('/api/agents', {
-        method: 'POST',
-        body: JSON.stringify({
-          address: ctx.walletAddress,
-          name,
-          description,
-          skills,
-          services,
-          txHash: result.txHash,
-        }),
-      });
-
-      if (indexerResp.ok) {
-        const indexerData = await indexerResp.json() as { agentId?: number };
-        agentId = indexerData.agentId ?? null;
-      }
-    } catch (e) {
-      console.error(`[work] Indexer registration failed (non-fatal): ${e}`);
-    }
-
-    // Save agent ID locally
-    if (agentId !== null) {
-      saveLocalAgentId(agentId, name);
-    }
+    // TODO: Parse agentId from the Register event in the tx receipt.
+    // The IdentityRegistry emits Register(uint256 indexed agentId, address indexed owner, string agentURI).
+    // For now, agentId recovery requires IdentityRegistry event indexing (planned).
+    // The on-chain registration still succeeds — the agent can use work_profile to look up their ID later.
+    const agentId: number | null = null;
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 

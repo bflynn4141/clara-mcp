@@ -22,8 +22,9 @@ import {
   formatAmount,
   parseDeadline,
   formatDeadline,
-  indexerFetch,
 } from './work-helpers.js';
+import { syncFromChain } from '../indexer/sync.js';
+import { getBountyByTxHash } from '../indexer/queries.js';
 
 export const workPostToolDefinition: Tool = {
   name: 'work_post',
@@ -164,29 +165,14 @@ export async function handleWorkPost(
       chainId,
     });
 
-    // Index the bounty (best-effort)
+    // Sync local indexer to pick up the BountyCreated event
     let bountyAddress: string | null = null;
     try {
-      const indexerResp = await indexerFetch('/api/bounties', {
-        method: 'POST',
-        body: JSON.stringify({
-          poster: ctx.walletAddress,
-          token: token.address,
-          tokenSymbol: token.symbol,
-          amount,
-          deadline: deadlineTimestamp,
-          taskSummary,
-          skills,
-          txHash: result.txHash,
-        }),
-      });
-
-      if (indexerResp.ok) {
-        const data = await indexerResp.json() as { bountyAddress?: string };
-        bountyAddress = data.bountyAddress ?? null;
-      }
+      await syncFromChain();
+      const bounty = getBountyByTxHash(result.txHash);
+      bountyAddress = bounty?.bountyAddress ?? null;
     } catch (e) {
-      console.error(`[work] Indexer POST failed (non-fatal): ${e}`);
+      console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);

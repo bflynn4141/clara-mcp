@@ -11,7 +11,8 @@ import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
 import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
-import { formatAddress, indexerFetch } from './work-helpers.js';
+import { formatAddress } from './work-helpers.js';
+import { syncFromChain } from '../indexer/sync.js';
 
 export const workClaimToolDefinition: Tool = {
   name: 'work_claim',
@@ -75,18 +76,11 @@ export async function handleWorkClaim(
       chainId: getChainId('base'),
     });
 
-    // Update indexer (best-effort)
+    // Sync local indexer to pick up BountyClaimed event
     try {
-      await indexerFetch(`/api/bounties/${bountyAddress}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          status: 'claimed',
-          claimer: ctx.walletAddress,
-          claimedAt: new Date().toISOString(),
-        }),
-      });
+      await syncFromChain();
     } catch (e) {
-      console.error(`[work] Indexer update failed (non-fatal): ${e}`);
+      console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);

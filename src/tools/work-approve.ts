@@ -15,7 +15,8 @@ import {
   REPUTATION_REGISTRY_ABI,
 } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
-import { formatAddress, toDataUri, indexerFetch, getLocalAgentId } from './work-helpers.js';
+import { formatAddress, toDataUri, getLocalAgentId } from './work-helpers.js';
+import { syncFromChain } from '../indexer/sync.js';
 
 export const workApproveToolDefinition: Tool = {
   name: 'work_approve',
@@ -130,19 +131,11 @@ export async function handleWorkApprove(
       console.error(`[work] Reputation feedback failed (non-fatal): ${e}`);
     }
 
-    // Update indexer (best-effort)
+    // Sync local indexer to pick up BountyApproved event
     try {
-      await indexerFetch(`/api/bounties/${bountyAddress}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          status: 'approved',
-          rating,
-          comment,
-          approvedAt: new Date().toISOString(),
-        }),
-      });
+      await syncFromChain();
     } catch (e) {
-      console.error(`[work] Indexer update failed (non-fatal): ${e}`);
+      console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', approveResult.txHash);

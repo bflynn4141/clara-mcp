@@ -1,13 +1,27 @@
 /**
  * work_profile - View Full Agent Profile
  *
- * Public tool that fetches a complete agent profile with reputation
- * and bounty history from the Clara indexer.
+ * Public tool that reads agent data from on-chain contracts
+ * (IdentityRegistry + ReputationRegistry) and enriches with
+ * bounty history from the local indexer.
  */
 
+import type { Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../middleware.js';
-import { indexerFetch, formatAddress, formatDeadline, formatAmount } from './work-helpers.js';
+import {
+  formatAddress,
+  formatRawAmount,
+  parseTaskURI,
+  getTaskSummary,
+} from './work-helpers.js';
+import {
+  getClaraPublicClient,
+  getBountyContracts,
+  IDENTITY_REGISTRY_ABI,
+  REPUTATION_REGISTRY_ABI,
+} from '../config/clara-contracts.js';
+import { getBountiesByPoster, getBountiesByClaimer } from '../indexer/queries.js';
 
 export const workProfileToolDefinition: Tool = {
   name: 'work_profile',
@@ -32,33 +46,108 @@ export const workProfileToolDefinition: Tool = {
   },
 };
 
-interface AgentProfile {
-  agentId: number;
+/**
+ * Resolve an address to an agentId using tokenOfOwnerByIndex.
+ */
+async function resolveAgentId(address: string): Promise<number | null> {
+  const client = getClaraPublicClient();
+  const { identityRegistry } = getBountyContracts();
+
+  try {
+    const balance = await client.readContract({
+      address: identityRegistry as Hex,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'balanceOf',
+      args: [address as Hex],
+    });
+
+    if (balance === 0n) return null;
+
+    const tokenId = await client.readContract({
+      address: identityRegistry as Hex,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'tokenOfOwnerByIndex',
+      args: [address as Hex, 0n],
+    });
+
+    return Number(tokenId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read agent metadata from on-chain tokenURI.
+ */
+async function readAgentMetadata(agentId: number): Promise<{
   name: string;
   address: string;
-  description: string;
   skills: string[];
   services: string[];
-  registeredAt: string;
+  description?: string;
+  registeredAt?: string;
+} | null> {
+  const client = getClaraPublicClient();
+  const { identityRegistry } = getBountyContracts();
+
+  try {
+    const [owner, tokenURI] = await Promise.all([
+      client.readContract({
+        address: identityRegistry as Hex,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'ownerOf',
+        args: [BigInt(agentId)],
+      }),
+      client.readContract({
+        address: identityRegistry as Hex,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'tokenURI',
+        args: [BigInt(agentId)],
+      }),
+    ]);
+
+    const metadata = parseTaskURI(tokenURI);
+    return {
+      name: (metadata?.name as string) || `Agent #${agentId}`,
+      address: owner as string,
+      skills: (metadata?.skills as string[]) || [],
+      services: (metadata?.services as string[]) || [],
+      description: metadata?.description as string | undefined,
+      registeredAt: metadata?.registeredAt as string | undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
-interface ReputationData {
-  overallScore: number;
-  totalFeedback: number;
-  completedBounties: number;
-  postedBounties: number;
-  completionRate: number;
-  topSkills: Array<{ skill: string; score: number }>;
-  recentFeedback: Array<{ rating: number; comment: string; from: string; date: string }>;
-}
+/**
+ * Read reputation summary from on-chain ReputationRegistry.
+ */
+async function readReputation(agentId: number): Promise<{
+  count: number;
+  averageRating: number;
+} | null> {
+  const client = getClaraPublicClient();
+  const { reputationRegistry } = getBountyContracts();
 
-interface BountyHistory {
-  bountyAddress: string;
-  amount: string;
-  tokenSymbol: string;
-  taskSummary: string;
-  status: string;
-  deadline: number;
+  try {
+    const [count, summaryValue, summaryValueDecimals] = await client.readContract({
+      address: reputationRegistry as Hex,
+      abi: REPUTATION_REGISTRY_ABI,
+      functionName: 'getSummary',
+      args: [BigInt(agentId), [], 'bounty', 'completed'],
+    });
+
+    const divisor = 10 ** Number(summaryValueDecimals);
+    const avg = Number(count) > 0 ? Number(summaryValue) / divisor / Number(count) : 0;
+
+    return {
+      count: Number(count),
+      averageRating: avg,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function handleWorkProfile(
@@ -78,14 +167,18 @@ export async function handleWorkProfile(
   }
 
   try {
-    // Fetch agent data
-    const agentPath = agentId !== undefined
-      ? `/api/agents/${agentId}`
-      : `/api/agents/address/${address}`;
+    // Resolve agentId from address if needed
+    let resolvedAgentId = agentId ?? null;
+    if (resolvedAgentId === null && address) {
+      resolvedAgentId = await resolveAgentId(address);
+    }
 
-    const agentResp = await indexerFetch(agentPath);
+    // If we still don't have an agentId, show bounty-only profile
+    if (resolvedAgentId === null && address) {
+      return buildBountyOnlyProfile(address);
+    }
 
-    if (!agentResp.ok) {
+    if (resolvedAgentId === null) {
       return {
         content: [{
           type: 'text',
@@ -95,87 +188,81 @@ export async function handleWorkProfile(
       };
     }
 
-    const agent = await agentResp.json() as AgentProfile;
-
-    // Fetch reputation and bounty history in parallel
-    const [repResp, historyResp] = await Promise.all([
-      indexerFetch(`/api/reputation/${agent.agentId}`),
-      indexerFetch(`/api/bounties?address=${agent.address}&limit=5`),
+    // Read agent metadata + reputation from chain in parallel
+    const [agent, reputation] = await Promise.all([
+      readAgentMetadata(resolvedAgentId),
+      readReputation(resolvedAgentId),
     ]);
 
-    let reputation: ReputationData | null = null;
-    if (repResp.ok) {
-      reputation = await repResp.json() as ReputationData;
-    }
+    const agentName = agent?.name || `Agent #${resolvedAgentId}`;
+    const agentAddr = agent?.address || address || 'unknown';
 
-    let bounties: BountyHistory[] = [];
-    if (historyResp.ok) {
-      const historyData = await historyResp.json() as { bounties: BountyHistory[] };
-      bounties = historyData.bounties || [];
-    }
+    // Get bounty history from local indexer
+    const posted = getBountiesByPoster(agentAddr);
+    const claimed = getBountiesByClaimer(agentAddr);
+    const completed = claimed.filter((b) => b.status === 'approved');
 
     // Build profile card
     const lines = [
       '┌──────────────────────────────────────',
-      `│ **${agent.name}**`,
-      `│ Agent #${agent.agentId} | \`${formatAddress(agent.address)}\``,
+      `│ **${agentName}**`,
+      `│ Agent #${resolvedAgentId} | \`${formatAddress(agentAddr)}\``,
       '├──────────────────────────────────────',
     ];
 
-    if (agent.description) {
+    if (agent?.description) {
       lines.push(`│ ${agent.description}`);
       lines.push('│');
     }
 
-    lines.push(`│ **Skills:** ${agent.skills?.join(', ') || 'none listed'}`);
+    lines.push(`│ **Skills:** ${agent?.skills?.join(', ') || 'none listed'}`);
 
-    if (agent.services?.length > 0) {
+    if (agent?.services && agent.services.length > 0) {
       lines.push(`│ **Services:** ${agent.services.join(', ')}`);
     }
 
-    if (agent.registeredAt) {
+    if (agent?.registeredAt) {
       const regDate = new Date(agent.registeredAt).toLocaleDateString();
       lines.push(`│ **Registered:** ${regDate}`);
     }
 
     // Reputation section
-    if (reputation) {
-      lines.push('├──────────────────────────────────────');
-      lines.push('│ **Reputation**');
-      lines.push(`│ Score: ${reputation.overallScore}/100 | Reviews: ${reputation.totalFeedback}`);
-      lines.push(`│ Completed: ${reputation.completedBounties} | Posted: ${reputation.postedBounties}`);
+    lines.push('├──────────────────────────────────────');
+    lines.push('│ **Reputation**');
 
-      if (reputation.completionRate !== undefined) {
-        lines.push(`│ Completion Rate: ${(reputation.completionRate * 100).toFixed(0)}%`);
-      }
+    if (reputation && reputation.count > 0) {
+      const stars = '★'.repeat(Math.round(reputation.averageRating)) +
+        '☆'.repeat(5 - Math.round(reputation.averageRating));
+      lines.push(`│ ${stars} ${reputation.averageRating.toFixed(1)}/5 (${reputation.count} review${reputation.count !== 1 ? 's' : ''})`);
+    } else {
+      lines.push('│ No on-chain reviews yet');
+    }
 
-      if (reputation.topSkills?.length > 0) {
-        lines.push('│');
-        lines.push('│ **Top Skills:**');
-        for (const s of reputation.topSkills.slice(0, 5)) {
-          const bar = '█'.repeat(Math.round(s.score / 10)) + '░'.repeat(10 - Math.round(s.score / 10));
-          lines.push(`│ ${s.skill}: ${bar} ${s.score}`);
-        }
-      }
+    lines.push(`│ Completed: ${completed.length} | Posted: ${posted.length} | Claimed: ${claimed.length}`);
 
-      if (reputation.recentFeedback?.length > 0) {
-        lines.push('│');
-        lines.push('│ **Recent Feedback:**');
-        for (const f of reputation.recentFeedback.slice(0, 3)) {
-          const stars = '★'.repeat(f.rating) + '☆'.repeat(5 - f.rating);
-          lines.push(`│ ${stars} "${f.comment}" — ${formatAddress(f.from)}`);
-        }
-      }
+    if (claimed.length > 0) {
+      const rate = ((completed.length / claimed.length) * 100).toFixed(0);
+      lines.push(`│ Completion Rate: ${rate}%`);
     }
 
     // Recent bounties section
-    if (bounties.length > 0) {
+    const allBounties = [...posted, ...claimed]
+      .filter((b, i, arr) => arr.findIndex((x) => x.bountyAddress === b.bountyAddress) === i)
+      .sort((a, b) => b.createdBlock - a.createdBlock)
+      .slice(0, 5);
+
+    if (allBounties.length > 0) {
       lines.push('├──────────────────────────────────────');
       lines.push('│ **Recent Bounties**');
 
-      for (const b of bounties) {
-        const statusIcon = b.status === 'approved' ? '✅' : b.status === 'open' ? '🟢' : '📋';
-        lines.push(`│ ${statusIcon} ${formatAmount(b.amount, b.tokenSymbol || 'USDC')} — ${b.taskSummary.slice(0, 50)}`);
+      for (const b of allBounties) {
+        const statusIcon = b.status === 'approved' ? '✅' :
+          b.status === 'open' ? '🟢' :
+          b.status === 'claimed' ? '🔵' :
+          b.status === 'submitted' ? '📋' : '⚪';
+        const amount = formatRawAmount(b.amount, b.token);
+        const summary = getTaskSummary(b.taskURI);
+        lines.push(`│ ${statusIcon} ${amount} — ${summary.slice(0, 50)}`);
       }
     }
 
@@ -193,4 +280,56 @@ export async function handleWorkProfile(
       isError: true,
     };
   }
+}
+
+/**
+ * Fallback when we have an address but no agentId (not registered).
+ * Shows bounty history from local indexer only.
+ */
+function buildBountyOnlyProfile(address: string): ToolResult {
+  const posted = getBountiesByPoster(address);
+  const claimed = getBountiesByClaimer(address);
+
+  if (posted.length === 0 && claimed.length === 0) {
+    return {
+      content: [{
+        type: 'text',
+        text: `No profile found for \`${formatAddress(address)}\`.\n\nThis address has no registered agent and no bounty activity.\nRegister with \`work_register\`.`,
+      }],
+    };
+  }
+
+  const lines = [
+    '┌──────────────────────────────────────',
+    `│ \`${formatAddress(address)}\``,
+    `│ (Not registered as an agent)`,
+    '├──────────────────────────────────────',
+    `│ **Bounties Posted:** ${posted.length}`,
+    `│ **Bounties Claimed:** ${claimed.length}`,
+  ];
+
+  const allBounties = [...posted, ...claimed]
+    .filter((b, i, arr) => arr.findIndex((x) => x.bountyAddress === b.bountyAddress) === i)
+    .sort((a, b) => b.createdBlock - a.createdBlock)
+    .slice(0, 5);
+
+  if (allBounties.length > 0) {
+    lines.push('├──────────────────────────────────────');
+    lines.push('│ **Recent Bounties**');
+    for (const b of allBounties) {
+      const statusIcon = b.status === 'approved' ? '✅' :
+        b.status === 'open' ? '🟢' : '📋';
+      const amount = formatRawAmount(b.amount, b.token);
+      const summary = getTaskSummary(b.taskURI);
+      lines.push(`│ ${statusIcon} ${amount} — ${summary.slice(0, 50)}`);
+    }
+  }
+
+  lines.push('└──────────────────────────────────────');
+  lines.push('');
+  lines.push('Register as an agent with `work_register` for a full profile.');
+
+  return {
+    content: [{ type: 'text', text: lines.join('\n') }],
+  };
 }

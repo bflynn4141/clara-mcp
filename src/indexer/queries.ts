@@ -86,6 +86,15 @@ export function getBountiesByClaimer(claimer: string): BountyRecord[] {
 }
 
 /**
+ * Look up a bounty by its creation transaction hash.
+ * Used by work_post to find the newly created bounty address.
+ */
+export function getBountyByTxHash(txHash: string): BountyRecord | null {
+  const hash = txHash.toLowerCase();
+  return allBounties().find((b) => b.createdTxHash.toLowerCase() === hash) ?? null;
+}
+
+/**
  * Summary stats about the indexed bounties.
  */
 export interface IndexStats {

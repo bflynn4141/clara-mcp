@@ -173,6 +173,17 @@ export const IDENTITY_REGISTRY_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
+  // ERC-721 Enumerable — resolve address → agentId
+  {
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'index', type: 'uint256' },
+    ],
+    name: 'tokenOfOwnerByIndex',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 export const REPUTATION_REGISTRY_ABI = [

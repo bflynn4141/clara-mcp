@@ -1,13 +1,22 @@
 /**
  * work_reputation - View Agent Reputation
  *
- * Public tool that fetches an agent's reputation data from the indexer.
- * Shows overall score, number of bounties, top skills, and completion rate.
+ * Public tool that reads agent reputation directly from on-chain contracts
+ * (IdentityRegistry + ReputationRegistry) and enriches with local bounty data.
  */
 
+import type { Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../middleware.js';
-import { indexerFetch, formatAddress } from './work-helpers.js';
+import { formatAddress } from './work-helpers.js';
+import {
+  getClaraPublicClient,
+  getBountyContracts,
+  IDENTITY_REGISTRY_ABI,
+  REPUTATION_REGISTRY_ABI,
+} from '../config/clara-contracts.js';
+import { parseTaskURI } from './work-helpers.js';
+import { getBountiesByPoster, getBountiesByClaimer } from '../indexer/queries.js';
 
 export const workReputationToolDefinition: Tool = {
   name: 'work_reputation',
@@ -34,20 +43,106 @@ Look up by wallet address or agent ID.
   },
 };
 
-interface AgentData {
-  agentId: number;
+/**
+ * Resolve an address to an agentId using tokenOfOwnerByIndex.
+ * Returns null if the address has no registered agent.
+ */
+async function resolveAgentId(address: string): Promise<number | null> {
+  const client = getClaraPublicClient();
+  const { identityRegistry } = getBountyContracts();
+
+  try {
+    const balance = await client.readContract({
+      address: identityRegistry as Hex,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'balanceOf',
+      args: [address as Hex],
+    });
+
+    if (balance === 0n) return null;
+
+    // Get the first token (most agents have exactly one)
+    const tokenId = await client.readContract({
+      address: identityRegistry as Hex,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'tokenOfOwnerByIndex',
+      args: [address as Hex, 0n],
+    });
+
+    return Number(tokenId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read agent metadata from on-chain tokenURI.
+ */
+async function readAgentMetadata(agentId: number): Promise<{
   name: string;
   address: string;
   skills: string[];
+  description?: string;
+} | null> {
+  const client = getClaraPublicClient();
+  const { identityRegistry } = getBountyContracts();
+
+  try {
+    const [owner, tokenURI] = await Promise.all([
+      client.readContract({
+        address: identityRegistry as Hex,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'ownerOf',
+        args: [BigInt(agentId)],
+      }),
+      client.readContract({
+        address: identityRegistry as Hex,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'tokenURI',
+        args: [BigInt(agentId)],
+      }),
+    ]);
+
+    const metadata = parseTaskURI(tokenURI);
+    return {
+      name: (metadata?.name as string) || `Agent #${agentId}`,
+      address: owner as string,
+      skills: (metadata?.skills as string[]) || [],
+      description: metadata?.description as string | undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
-interface ReputationData {
-  overallScore: number;
-  totalFeedback: number;
-  completedBounties: number;
-  postedBounties: number;
-  completionRate: number;
-  topSkills: Array<{ skill: string; score: number }>;
+/**
+ * Read reputation summary from on-chain ReputationRegistry.
+ */
+async function readReputation(agentId: number): Promise<{
+  count: number;
+  averageRating: number;
+} | null> {
+  const client = getClaraPublicClient();
+  const { reputationRegistry } = getBountyContracts();
+
+  try {
+    const [count, summaryValue, summaryValueDecimals] = await client.readContract({
+      address: reputationRegistry as Hex,
+      abi: REPUTATION_REGISTRY_ABI,
+      functionName: 'getSummary',
+      args: [BigInt(agentId), [], 'bounty', 'completed'],
+    });
+
+    const divisor = 10 ** Number(summaryValueDecimals);
+    const avg = Number(count) > 0 ? Number(summaryValue) / divisor / Number(count) : 0;
+
+    return {
+      count: Number(count),
+      averageRating: avg,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function handleWorkReputation(
@@ -67,60 +162,65 @@ export async function handleWorkReputation(
   }
 
   try {
-    // Fetch agent data
-    const agentPath = agentId !== undefined
-      ? `/api/agents/${agentId}`
-      : `/api/agents/address/${address}`;
+    // Resolve agentId from address if needed
+    let resolvedAgentId = agentId ?? null;
+    if (resolvedAgentId === null && address) {
+      resolvedAgentId = await resolveAgentId(address);
+    }
 
-    const agentResp = await indexerFetch(agentPath);
-
-    if (!agentResp.ok) {
+    if (resolvedAgentId === null) {
       return {
         content: [{
           type: 'text',
-          text: `❌ Agent not found. They may not be registered yet.\n\nRegister with \`work_register\`.`,
+          text: `❌ Agent not found${address ? ` for address \`${formatAddress(address)}\`` : ''}. They may not be registered yet.\n\nRegister with \`work_register\`.`,
         }],
         isError: true,
       };
     }
 
-    const agent = await agentResp.json() as AgentData;
+    // Read agent metadata + reputation from chain
+    const [agent, reputation] = await Promise.all([
+      readAgentMetadata(resolvedAgentId),
+      readReputation(resolvedAgentId),
+    ]);
 
-    // Fetch reputation data
-    const repResp = await indexerFetch(`/api/reputation/${agent.agentId}`);
-    let reputation: ReputationData | null = null;
+    const agentName = agent?.name || `Agent #${resolvedAgentId}`;
+    const agentAddr = agent?.address || address || 'unknown';
+    const skills = agent?.skills || [];
 
-    if (repResp.ok) {
-      reputation = await repResp.json() as ReputationData;
-    }
+    // Enrich with bounty stats from local indexer
+    const posted = getBountiesByPoster(agentAddr);
+    const claimed = getBountiesByClaimer(agentAddr);
+    const completed = claimed.filter((b) => b.status === 'approved');
 
-    // Format output
     const lines = [
-      `**Agent Reputation: ${agent.name}**`,
+      `**Agent Reputation: ${agentName}**`,
       '',
-      `**Address:** \`${formatAddress(agent.address)}\``,
-      `**Agent ID:** ${agent.agentId}`,
-      `**Skills:** ${agent.skills?.join(', ') || 'none listed'}`,
+      `**Address:** \`${formatAddress(agentAddr)}\``,
+      `**Agent ID:** ${resolvedAgentId}`,
+      `**Skills:** ${skills.length > 0 ? skills.join(', ') : 'none listed'}`,
     ];
 
-    if (reputation) {
+    // On-chain reputation
+    if (reputation && reputation.count > 0) {
       lines.push('');
-      lines.push(`**Overall Score:** ${reputation.overallScore}/100`);
-      lines.push(`**Completed Bounties:** ${reputation.completedBounties}`);
-      lines.push(`**Posted Bounties:** ${reputation.postedBounties}`);
-      lines.push(`**Completion Rate:** ${(reputation.completionRate * 100).toFixed(0)}%`);
-      lines.push(`**Total Feedback:** ${reputation.totalFeedback} reviews`);
+      lines.push(`**Rating:** ${reputation.averageRating.toFixed(1)}/5 (${reputation.count} review${reputation.count !== 1 ? 's' : ''})`);
+    }
 
-      if (reputation.topSkills?.length > 0) {
-        lines.push('');
-        lines.push('**Top Skills:**');
-        for (const s of reputation.topSkills) {
-          lines.push(`- ${s.skill}: ${s.score}/100`);
-        }
-      }
-    } else {
+    // Bounty stats from local indexer
+    lines.push('');
+    lines.push(`**Posted Bounties:** ${posted.length}`);
+    lines.push(`**Claimed Bounties:** ${claimed.length}`);
+    lines.push(`**Completed:** ${completed.length}`);
+
+    if (claimed.length > 0) {
+      const rate = ((completed.length / claimed.length) * 100).toFixed(0);
+      lines.push(`**Completion Rate:** ${rate}%`);
+    }
+
+    if (!reputation || reputation.count === 0) {
       lines.push('');
-      lines.push('No reputation data yet.');
+      lines.push('No on-chain reputation feedback yet.');
     }
 
     return {
