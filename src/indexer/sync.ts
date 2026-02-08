@@ -18,10 +18,12 @@ import {
   getBountyContracts,
   BOUNTY_FACTORY_EVENTS,
   BOUNTY_EVENTS,
+  IDENTITY_REGISTRY_EVENTS,
   FACTORY_DEPLOY_BLOCK,
 } from '../config/clara-contracts.js';
 import { loadIndex, saveIndex } from './store.js';
-import type { BountyIndex, BountyRecord } from './types.js';
+import type { BountyIndex, BountyRecord, AgentRecord } from './types.js';
+import { parseTaskURI } from '../tools/work-helpers.js';
 
 /** Maximum block range per getLogs call (Base Sepolia safe limit) */
 const MAX_BLOCK_RANGE = 10_000n;
@@ -51,7 +53,7 @@ export function getIndex(): BountyIndex | null {
  */
 export async function syncFromChain(): Promise<void> {
   const client = getClaraPublicClient();
-  const { bountyFactory } = getBountyContracts();
+  const { bountyFactory, identityRegistry } = getBountyContracts();
 
   // Load from disk on first call
   if (!index) {
@@ -137,6 +139,46 @@ export async function syncFromChain(): Promise<void> {
 
         for (const event of parsed) {
           applyLifecycleEvent(record, event, log);
+        }
+      }
+    }
+
+    // 3. Fetch Register events from IdentityRegistry
+    const registerLogs = await client.getLogs({
+      address: identityRegistry as Hex,
+      events: IDENTITY_REGISTRY_EVENTS,
+      fromBlock: chunkStart,
+      toBlock: chunkEnd,
+    });
+
+    for (const log of registerLogs) {
+      const parsed = parseEventLogs({
+        abi: IDENTITY_REGISTRY_EVENTS,
+        logs: [log],
+      });
+
+      for (const event of parsed) {
+        if (event.eventName === 'Register') {
+          const args = event.args as {
+            agentId: bigint;
+            owner: Hex;
+            agentURI: string;
+          };
+
+          const owner = args.owner.toLowerCase();
+          if (!index.agents[owner]) {
+            const metadata = parseTaskURI(args.agentURI);
+            index.agents[owner] = {
+              agentId: Number(args.agentId),
+              owner,
+              agentURI: args.agentURI,
+              name: (metadata?.name as string) || `Agent #${Number(args.agentId)}`,
+              skills: (metadata?.skills as string[]) || [],
+              description: metadata?.description as string | undefined,
+              registeredBlock: Number(log.blockNumber),
+              registeredTxHash: log.transactionHash ?? '',
+            };
+          }
         }
       }
     }

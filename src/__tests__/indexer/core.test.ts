@@ -83,8 +83,10 @@ function makeIndex(bounties: Record<string, BountyRecord>, lastBlock = 37900000)
   return {
     lastBlock,
     factoryAddress: '0xfactoryaddr',
+    identityRegistryAddress: '0xidentity',
     chainId: 84532,
     bounties,
+    agents: {},
   };
 }
 
@@ -182,10 +184,12 @@ describe('store', () => {
       const storedIndex: BountyIndex = {
         lastBlock: 38000000,
         factoryAddress: '0xfactoryaddr',
+        identityRegistryAddress: '0xidentity',
         chainId: 84532,
         bounties: {
           '0xbounty1': makeBounty({ bountyAddress: '0xbounty1' }),
         },
+        agents: {},
       };
 
       vi.mocked(existsSync).mockReturnValue(true);
@@ -214,10 +218,12 @@ describe('store', () => {
       const storedIndex: BountyIndex = {
         lastBlock: 38000000,
         factoryAddress: '0xold_factory', // different from mocked '0xfactoryaddr'
+        identityRegistryAddress: '0xidentity',
         chainId: 84532,
         bounties: {
           '0xbounty1': makeBounty({ bountyAddress: '0xbounty1' }),
         },
+        agents: {},
       };
 
       vi.mocked(existsSync).mockReturnValue(true);
@@ -234,8 +240,10 @@ describe('store', () => {
     it('fills in missing lastBlock with FACTORY_DEPLOY_BLOCK', () => {
       const storedIndex = {
         factoryAddress: '0xfactoryaddr',
+        identityRegistryAddress: '0xidentity',
         chainId: 84532,
         bounties: {},
+        agents: {},
         // lastBlock intentionally missing
       };
 
@@ -251,6 +259,7 @@ describe('store', () => {
       const storedIndex = {
         lastBlock: 38000000,
         factoryAddress: '0xfactoryaddr',
+        identityRegistryAddress: '0xidentity',
         chainId: 84532,
         // bounties intentionally missing
       };
@@ -269,8 +278,10 @@ describe('store', () => {
       const storedIndex: BountyIndex = {
         lastBlock: 38000000,
         factoryAddress: '0xfactoryaddr',
+        identityRegistryAddress: '0xidentity',
         chainId: 84532,
         bounties: { '0xbounty1': bounty1, '0xbounty2': bounty2 },
+        agents: {},
       };
 
       vi.mocked(existsSync).mockReturnValue(true);

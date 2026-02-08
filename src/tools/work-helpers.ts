@@ -2,50 +2,14 @@
  * Work Tool Helpers
  *
  * Shared utilities for the work_* bounty tools.
- * Handles indexer communication, local agent storage,
- * data URI encoding, and formatting helpers.
+ * Handles local agent storage, data URI encoding,
+ * token metadata, and formatting helpers.
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { formatUnits } from 'viem';
-
-// ─── Indexer Communication ──────────────────────────────────────────
-
-/**
- * Get the indexer base URL from environment
- */
-export function getIndexerUrl(): string {
-  return process.env.CLARA_INDEXER_URL || 'http://localhost:8787';
-}
-
-/**
- * Fetch wrapper for the Clara indexer API.
- * Adds auth header if CLARA_INDEXER_API_KEY is set.
- */
-export async function indexerFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<Response> {
-  const baseUrl = getIndexerUrl();
-  const url = `${baseUrl}${path}`;
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
-  };
-
-  const apiKey = process.env.CLARA_INDEXER_API_KEY;
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-
-  return fetch(url, {
-    ...options,
-    headers,
-  });
-}
 
 // ─── Local Agent Storage ────────────────────────────────────────────
 
@@ -172,6 +136,10 @@ const TOKEN_META: Record<string, { symbol: string; decimals: number }> = {
   '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': { symbol: 'DAI', decimals: 18 },
   '0x4200000000000000000000000000000000000006': { symbol: 'WETH', decimals: 18 },
   '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': { symbol: 'USDbC', decimals: 6 },
+  '0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22': { symbol: 'cbETH', decimals: 18 },
+  '0x940181a94a35a4569e4529a3cdfb74e38fd98631': { symbol: 'AERO', decimals: 18 },
+  '0x4ed4e862860bed51a9570b96d89af5e1b0efefed': { symbol: 'DEGEN', decimals: 18 },
+  '0x532f27101965dd16442e59d40670faf5ebb142e4': { symbol: 'BRETT', decimals: 18 },
   // Base Sepolia
   '0x514228d83ab8dcf1c0370fca88444f2f85c6ef55': { symbol: 'CLARA', decimals: 18 },
 };

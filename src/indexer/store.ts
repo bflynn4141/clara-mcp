@@ -30,13 +30,15 @@ function ensureDir(): void {
  * sync fetches all historical events.
  */
 function defaultIndex(): BountyIndex {
-  const { bountyFactory } = getBountyContracts();
+  const { bountyFactory, identityRegistry } = getBountyContracts();
   const { chainId } = getClaraContracts();
   return {
     lastBlock: Number(FACTORY_DEPLOY_BLOCK),
     factoryAddress: bountyFactory.toLowerCase(),
+    identityRegistryAddress: identityRegistry.toLowerCase(),
     chainId,
     bounties: {},
+    agents: {},
   };
 }
 
@@ -55,17 +57,21 @@ export function loadIndex(): BountyIndex {
     const data = readFileSync(INDEX_FILE, 'utf-8');
     const index = JSON.parse(data) as BountyIndex;
 
-    // Validate: if factory address changed (network switch), reset
-    const expected = getBountyContracts().bountyFactory.toLowerCase();
-    if (index.factoryAddress !== expected) {
+    // Validate: if factory or identity registry address changed (network switch), reset
+    const contracts = getBountyContracts();
+    const expectedFactory = contracts.bountyFactory.toLowerCase();
+    const expectedRegistry = contracts.identityRegistry.toLowerCase();
+    if (index.factoryAddress !== expectedFactory || index.identityRegistryAddress !== expectedRegistry) {
       return defaultIndex();
     }
 
     return {
       lastBlock: index.lastBlock ?? Number(FACTORY_DEPLOY_BLOCK),
       factoryAddress: index.factoryAddress,
+      identityRegistryAddress: index.identityRegistryAddress,
       chainId: index.chainId,
       bounties: index.bounties ?? {},
+      agents: index.agents ?? {},
     };
   } catch {
     console.error('[indexer] Corrupt bounties.json, resetting index');

@@ -382,6 +382,22 @@ export const FACTORY_DEPLOY_BLOCK = FACTORY_DEPLOY_BLOCKS[getClaraNetwork()];
 // ─── Event ABI Fragments ──────────────────────────────────────────
 
 /**
+ * IdentityRegistry events — emitted when an agent registers (ERC-8004).
+ * Used by the embedded indexer to populate the agent directory.
+ */
+export const IDENTITY_REGISTRY_EVENTS = [
+  {
+    type: 'event' as const,
+    name: 'Register',
+    inputs: [
+      { name: 'agentId', type: 'uint256', indexed: true },
+      { name: 'owner', type: 'address', indexed: true },
+      { name: 'agentURI', type: 'string', indexed: false },
+    ],
+  },
+] as const;
+
+/**
  * BountyFactory events — emitted when a new bounty clone is created.
  * Used by the embedded indexer to discover new bounty addresses.
  */

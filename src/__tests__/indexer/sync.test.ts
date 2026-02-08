@@ -97,6 +97,18 @@ vi.mock('../../config/clara-contracts.js', () => {
     },
   ] as const;
 
+  const IDENTITY_REGISTRY_EVENTS = [
+    {
+      type: 'event' as const,
+      name: 'Register',
+      inputs: [
+        { name: 'agentId', type: 'uint256', indexed: true },
+        { name: 'owner', type: 'address', indexed: true },
+        { name: 'agentURI', type: 'string', indexed: false },
+      ],
+    },
+  ] as const;
+
   return {
     getClaraPublicClient: vi.fn(() => ({
       getLogs: mockGetLogs,
@@ -109,6 +121,7 @@ vi.mock('../../config/clara-contracts.js', () => {
     })),
     BOUNTY_FACTORY_EVENTS,
     BOUNTY_EVENTS,
+    IDENTITY_REGISTRY_EVENTS,
     FACTORY_DEPLOY_BLOCK: 100n,
   };
 });
@@ -121,6 +134,22 @@ vi.mock('../../indexer/store.js', () => ({
   saveIndex: mockSaveIndex,
 }));
 
+vi.mock('../../tools/work-helpers.js', () => ({
+  parseTaskURI: vi.fn((uri: string) => {
+    try {
+      const b64Prefix = 'data:application/json;base64,';
+      if (uri.startsWith(b64Prefix)) {
+        const b64 = uri.slice(b64Prefix.length);
+        const json = Buffer.from(b64, 'base64').toString('utf-8');
+        return JSON.parse(json);
+      }
+      return JSON.parse(uri);
+    } catch {
+      return null;
+    }
+  }),
+}));
+
 // ─── Helpers ──────────────────────────────────────────────────────────
 
 /** Build a default empty test index */
@@ -128,8 +157,10 @@ function makeDefaultIndex(overrides: Partial<BountyIndex> = {}): BountyIndex {
   return {
     lastBlock: 100,
     factoryAddress: '0xfactory',
+    identityRegistryAddress: '0xidentity',
     chainId: 84532,
     bounties: {},
+    agents: {},
     ...overrides,
   };
 }
@@ -634,16 +665,17 @@ describe('sync', () => {
 
       await syncModule.syncFromChain();
 
-      // With no bounties, only factory getLogs calls are made (one per chunk)
+      // With no bounties: 2 getLogs per chunk (factory + identity registry)
       // Chunk 1: 101 → 10100
       // Chunk 2: 10101 → 20100
       // Chunk 3: 20101 → 25100
       const calls = mockGetLogs.mock.calls;
-      expect(calls.length).toBe(3); // 3 chunks, factory only (no bounties)
+      expect(calls.length).toBe(6); // 3 chunks × 2 (factory + identity)
 
+      // Factory calls at indices 0, 2, 4
       expect(calls[0][0]).toMatchObject({ fromBlock: 101n, toBlock: 10100n });
-      expect(calls[1][0]).toMatchObject({ fromBlock: 10101n, toBlock: 20100n });
-      expect(calls[2][0]).toMatchObject({ fromBlock: 20101n, toBlock: 25100n });
+      expect(calls[2][0]).toMatchObject({ fromBlock: 10101n, toBlock: 20100n });
+      expect(calls[4][0]).toMatchObject({ fromBlock: 20101n, toBlock: 25100n });
     });
 
     it('checkpoints lastBlock after each chunk', async () => {
@@ -697,17 +729,22 @@ describe('sync', () => {
     });
 
     it('only fetches lifecycle logs when bounties exist', async () => {
-      // Empty bounties → only factory getLogs, no lifecycle getLogs
+      // Empty bounties → factory + identity getLogs, no lifecycle getLogs
       mockGetBlockNumber.mockResolvedValue(200n);
 
       await syncModule.syncFromChain();
 
-      // Only 1 getLogs call (factory events), not 2
-      expect(mockGetLogs).toHaveBeenCalledTimes(1);
-      // Verify it was the factory call (has factory address)
+      // 2 getLogs calls: factory events + identity registry events (no lifecycle since no bounties)
+      expect(mockGetLogs).toHaveBeenCalledTimes(2);
+      // Verify factory and identity registry calls
       expect(mockGetLogs).toHaveBeenCalledWith(
         expect.objectContaining({
           address: '0xFactory',
+        }),
+      );
+      expect(mockGetLogs).toHaveBeenCalledWith(
+        expect.objectContaining({
+          address: '0xIdentity',
         }),
       );
     });

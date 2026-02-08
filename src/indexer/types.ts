@@ -56,15 +56,44 @@ export interface BountyRecord {
 }
 
 /**
- * Persisted index state — checkpoint + all tracked bounties.
+ * A registered agent tracked by the indexer.
+ *
+ * Created from IdentityRegistry Register events.
+ * The agentURI is parsed to extract name, skills, description.
+ */
+export interface AgentRecord {
+  /** ERC-8004 token ID */
+  agentId: number;
+  /** Wallet address that owns this agent NFT (lowercase) */
+  owner: string;
+  /** Raw agentURI (data: URI with metadata) */
+  agentURI: string;
+  /** Parsed from agentURI */
+  name: string;
+  /** Parsed from agentURI */
+  skills: string[];
+  /** Parsed from agentURI */
+  description?: string;
+  /** Block number where Register was emitted */
+  registeredBlock: number;
+  /** Transaction hash of the registration */
+  registeredTxHash: string;
+}
+
+/**
+ * Persisted index state — checkpoint + all tracked bounties and agents.
  */
 export interface BountyIndex {
   /** Last synced block number (for incremental sync) */
   lastBlock: number;
   /** Factory address this index was built from */
   factoryAddress: string;
+  /** IdentityRegistry address this index was built from */
+  identityRegistryAddress: string;
   /** Chain ID (84532 = Base Sepolia, 8453 = Base) */
   chainId: number;
   /** All bounties keyed by lowercase bountyAddress */
   bounties: Record<string, BountyRecord>;
+  /** All agents keyed by lowercase owner address */
+  agents: Record<string, AgentRecord>;
 }

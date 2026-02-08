@@ -4,7 +4,7 @@
  * Covers:
  * - work-helpers.ts: formatRawAmount, parseTaskURI, getTaskSummary, getTokenMeta,
  *   formatAddress, formatDeadline, parseDeadline, formatAmount, toDataUri,
- *   getIndexerUrl, indexerFetch, getLocalAgentId, saveLocalAgentId
+ *   getLocalAgentId, saveLocalAgentId
  * - work-browse.ts: handleWorkBrowse integration with local indexer
  * - work-list.ts: handleWorkList integration with local indexer
  */
@@ -35,8 +35,6 @@ vi.mock('../../indexer/index.js', () => ({
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 
 import {
-  getIndexerUrl,
-  indexerFetch,
   getLocalAgentId,
   saveLocalAgentId,
   toDataUri,
@@ -100,68 +98,6 @@ function makeCtx(address: Hex = WALLET_ADDRESS): ToolContext {
 describe('work-helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  // ─── getIndexerUrl ──────────────────────────────────────────────
-
-  describe('getIndexerUrl', () => {
-    afterEach(() => {
-      delete process.env.CLARA_INDEXER_URL;
-    });
-
-    it('returns CLARA_INDEXER_URL from env', () => {
-      process.env.CLARA_INDEXER_URL = 'http://custom:9999';
-      expect(getIndexerUrl()).toBe('http://custom:9999');
-    });
-
-    it('defaults to http://localhost:8787', () => {
-      delete process.env.CLARA_INDEXER_URL;
-      expect(getIndexerUrl()).toBe('http://localhost:8787');
-    });
-  });
-
-  // ─── indexerFetch ───────────────────────────────────────────────
-
-  describe('indexerFetch', () => {
-    let mockFetch: ReturnType<typeof vi.fn>;
-
-    beforeEach(() => {
-      mockFetch = vi.fn().mockResolvedValue(new Response('{}'));
-      vi.stubGlobal('fetch', mockFetch);
-      delete process.env.CLARA_INDEXER_URL;
-      delete process.env.CLARA_INDEXER_API_KEY;
-    });
-
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
-    it('prepends base URL to path', async () => {
-      await indexerFetch('/api/bounties');
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8787/api/bounties',
-        expect.any(Object),
-      );
-    });
-
-    it('sets Content-Type header', async () => {
-      await indexerFetch('/api/bounties');
-      const callArgs = mockFetch.mock.calls[0][1];
-      expect(callArgs.headers['Content-Type']).toBe('application/json');
-    });
-
-    it('adds Authorization header when CLARA_INDEXER_API_KEY is set', async () => {
-      process.env.CLARA_INDEXER_API_KEY = 'test-key';
-      await indexerFetch('/api/bounties');
-      const callArgs = mockFetch.mock.calls[0][1];
-      expect(callArgs.headers['Authorization']).toBe('Bearer test-key');
-    });
-
-    it('omits Authorization header when no API key', async () => {
-      await indexerFetch('/api/bounties');
-      const callArgs = mockFetch.mock.calls[0][1];
-      expect(callArgs.headers['Authorization']).toBeUndefined();
-    });
   });
 
   // ─── getLocalAgentId / saveLocalAgentId ──────────────────────────

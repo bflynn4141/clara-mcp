@@ -16,6 +16,8 @@ import {
   formatAddress,
   saveLocalAgentId,
 } from './work-helpers.js';
+import { syncFromChain } from '../indexer/sync.js';
+import { getAgentByAddress } from '../indexer/queries.js';
 
 export const workRegisterToolDefinition: Tool = {
   name: 'work_register',
@@ -107,11 +109,18 @@ export async function handleWorkRegister(
       chainId: getChainId('base'),
     });
 
-    // TODO: Parse agentId from the Register event in the tx receipt.
-    // The IdentityRegistry emits Register(uint256 indexed agentId, address indexed owner, string agentURI).
-    // For now, agentId recovery requires IdentityRegistry event indexing (planned).
-    // The on-chain registration still succeeds — the agent can use work_profile to look up their ID later.
-    const agentId: number | null = null;
+    // Sync the indexer to pick up the Register event and recover agentId
+    let agentId: number | null = null;
+    try {
+      await syncFromChain();
+      const agent = getAgentByAddress(ctx.walletAddress);
+      if (agent) {
+        agentId = agent.agentId;
+        saveLocalAgentId(agentId, name);
+      }
+    } catch {
+      // Non-fatal — the registration tx succeeded, agentId can be recovered later
+    }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 

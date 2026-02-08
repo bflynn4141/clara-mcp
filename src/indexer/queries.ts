@@ -6,7 +6,7 @@
  * Returns empty results if the indexer hasn't synced yet.
  */
 
-import type { BountyRecord, BountyStatus } from './types.js';
+import type { AgentRecord, BountyRecord, BountyStatus } from './types.js';
 import { getIndex } from './sync.js';
 
 export interface BountyFilter {
@@ -129,4 +129,58 @@ export function getIndexStats(): IndexStats {
     cancelledCount: counts.cancelled,
     lastSyncedBlock: index?.lastBlock ?? 0,
   };
+}
+
+// ─── Agent Queries ──────────────────────────────────────────────────
+
+/**
+ * Get all agents from the index as an array.
+ * Returns empty array if indexer hasn't initialized.
+ */
+function allAgents(): AgentRecord[] {
+  const index = getIndex();
+  if (!index) return [];
+  return Object.values(index.agents);
+}
+
+/**
+ * Look up an agent by their wallet address.
+ */
+export function getAgentByAddress(address: string): AgentRecord | null {
+  const index = getIndex();
+  if (!index) return null;
+  return index.agents[address.toLowerCase()] ?? null;
+}
+
+/**
+ * Look up an agent by their ERC-8004 agentId.
+ */
+export function getAgentByAgentId(agentId: number): AgentRecord | null {
+  return allAgents().find((a) => a.agentId === agentId) ?? null;
+}
+
+export interface AgentFilter {
+  skill?: string;
+  limit?: number;
+}
+
+/**
+ * Search agents with optional filters.
+ * Default: all agents, sorted by agentId ascending.
+ */
+export function findAgents(filters?: AgentFilter): AgentRecord[] {
+  const limit = filters?.limit ?? 50;
+  let results = allAgents();
+
+  if (filters?.skill) {
+    const skill = filters.skill.toLowerCase();
+    results = results.filter((a) =>
+      a.skills.some((s) => s.toLowerCase().includes(skill)),
+    );
+  }
+
+  // Sort by agentId ascending (oldest first)
+  results.sort((a, b) => a.agentId - b.agentId);
+
+  return results.slice(0, limit);
 }
