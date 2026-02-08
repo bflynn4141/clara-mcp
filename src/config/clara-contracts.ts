@@ -267,6 +267,21 @@ export const BOUNTY_ABI = [
     type: 'function',
   },
   {
+    inputs: [
+      { name: 'value', type: 'int128' },
+      { name: 'valueDecimals', type: 'uint8' },
+      { name: 'tag1', type: 'string' },
+      { name: 'tag2', type: 'string' },
+      { name: 'endpoint', type: 'string' },
+      { name: 'feedbackURI', type: 'string' },
+      { name: 'feedbackHash', type: 'bytes32' },
+    ],
+    name: 'approveWithFeedback',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
     inputs: [],
     name: 'cancel',
     outputs: [],

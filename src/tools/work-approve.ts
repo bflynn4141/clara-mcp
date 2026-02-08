@@ -1,28 +1,30 @@
 /**
  * work_approve - Approve Bounty Submission
  *
- * Approves a submitted bounty, releasing escrowed funds to the claimer.
- * Also submits on-chain reputation feedback via ReputationRegistry.
+ * Approves a submitted bounty via approveWithFeedback(), which atomically:
+ * 1. Releases escrowed funds to the claimer
+ * 2. Records on-chain reputation feedback for the claimer's agent
+ *
+ * The Bounty contract stores the claimerAgentId during claim(), so
+ * approveWithFeedback() automatically targets the correct agent.
+ * No need to look up or pass the claimer's agentId manually.
  */
 
 import { encodeFunctionData, keccak256, toHex, type Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
-import {
-  getBountyContracts,
-  BOUNTY_ABI,
-  REPUTATION_REGISTRY_ABI,
-} from '../config/clara-contracts.js';
+import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
-import { formatAddress, toDataUri, getLocalAgentId } from './work-helpers.js';
+import { formatAddress, toDataUri } from './work-helpers.js';
 import { syncFromChain } from '../indexer/sync.js';
 
 export const workApproveToolDefinition: Tool = {
   name: 'work_approve',
   description: `Approve a bounty submission and release payment to the worker.
 
-Also leaves on-chain reputation feedback for the worker.
+Leaves on-chain reputation feedback for the worker (1-5 rating).
+Payment + reputation are recorded in a single atomic transaction.
 
 **Example:**
 \`\`\`json
@@ -38,11 +40,11 @@ Also leaves on-chain reputation feedback for the worker.
       rating: {
         type: 'number',
         default: 4,
-        description: 'Rating 1-5 (default: 4)',
+        description: 'Rating 1-5 for the worker (default: 4). Set to 0 to skip feedback.',
       },
       comment: {
         type: 'string',
-        description: 'Optional feedback comment',
+        description: 'Optional feedback comment for the worker',
       },
     },
     required: ['bountyAddress'],
@@ -54,7 +56,8 @@ export async function handleWorkApprove(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   const bountyAddress = args.bountyAddress as string;
-  const rating = Math.min(5, Math.max(1, (args.rating as number) || 4));
+  const rawRating = args.rating as number | undefined;
+  const rating = rawRating === 0 ? 0 : Math.min(5, Math.max(1, rawRating || 4));
   const comment = (args.comment as string) || '';
 
   if (!bountyAddress || !bountyAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
@@ -65,71 +68,51 @@ export async function handleWorkApprove(
   }
 
   try {
-    const contracts = getBountyContracts();
     const chainId = getChainId('base');
+    let txData: Hex;
+    let hasFeedback = false;
 
-    // Step 1: Approve the bounty (releases funds)
-    const approveData = encodeFunctionData({
-      abi: BOUNTY_ABI,
-      functionName: 'approve',
-    });
+    if (rating > 0) {
+      // Use approveWithFeedback() — single atomic transaction:
+      // 1. Releases funds to claimer
+      // 2. Calls reputationRegistry.giveFeedback(claimerAgentId, ...) automatically
+      const feedbackMetadata = {
+        rating,
+        comment: comment || undefined,
+        bountyAddress,
+        timestamp: new Date().toISOString(),
+      };
+      const feedbackURI = toDataUri(feedbackMetadata);
+      const feedbackHash = keccak256(toHex(feedbackURI));
 
-    const approveResult = await signAndSendTransaction(ctx.session.walletId!, {
+      txData = encodeFunctionData({
+        abi: BOUNTY_ABI,
+        functionName: 'approveWithFeedback',
+        args: [
+          BigInt(rating),     // value (1-5 rating)
+          0,                  // valueDecimals (integer rating, no decimals)
+          'bounty',           // tag1 — category
+          'completed',        // tag2 — subcategory
+          '',                 // endpoint (not used)
+          feedbackURI,        // detailed feedback as data URI
+          feedbackHash,       // keccak256 integrity hash
+        ],
+      });
+      hasFeedback = true;
+    } else {
+      // rating=0: plain approve without reputation feedback
+      txData = encodeFunctionData({
+        abi: BOUNTY_ABI,
+        functionName: 'approve',
+      });
+    }
+
+    const result = await signAndSendTransaction(ctx.session.walletId!, {
       to: bountyAddress as Hex,
       value: 0n,
-      data: approveData,
+      data: txData,
       chainId,
     });
-
-    // Step 2: Give reputation feedback via approveWithFeedback (on-chain)
-    // Note: In v1, we use simple approve() above and do reputation separately.
-    // The bounty contract stores the claimerAgentId from claim().
-    let repTxHash: string | null = null;
-    try {
-      // Read the claimerAgentId from the bounty contract (stored during claim)
-      const localAgentId = getLocalAgentId();
-      if (localAgentId) {
-        // Convert 1-5 rating to int128 value (0 = no decimals)
-        const value = BigInt(rating);
-
-        const feedbackMetadata = {
-          rating,
-          comment,
-          bountyAddress,
-          timestamp: new Date().toISOString(),
-        };
-        const feedbackURI = toDataUri(feedbackMetadata);
-        const feedbackHash = keccak256(toHex(feedbackURI));
-
-        // Read claimerAgentId from bounty to know who to rate
-        // For now, use 0 as agentId — the contract's approveWithFeedback uses stored claimerAgentId
-        const repData = encodeFunctionData({
-          abi: REPUTATION_REGISTRY_ABI,
-          functionName: 'giveFeedback',
-          args: [
-            BigInt(localAgentId),  // agentId to rate (poster's own agent — TODO: should be claimer's)
-            value,                 // int128 value
-            0,                     // valueDecimals (integer rating)
-            'bounty',              // tag1
-            'completed',           // tag2
-            '',                    // endpoint
-            feedbackURI,           // feedbackURI
-            feedbackHash,          // feedbackHash
-          ],
-        });
-
-        const repResult = await signAndSendTransaction(ctx.session.walletId!, {
-          to: contracts.reputationRegistry,
-          value: 0n,
-          data: repData,
-          chainId,
-        });
-
-        repTxHash = repResult.txHash;
-      }
-    } catch (e) {
-      console.error(`[work] Reputation feedback failed (non-fatal): ${e}`);
-    }
 
     // Sync local indexer to pick up BountyApproved event
     try {
@@ -138,25 +121,27 @@ export async function handleWorkApprove(
       console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);
     }
 
-    const explorerUrl = getExplorerTxUrl('base', approveResult.txHash);
+    const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
     const lines = [
       '✅ **Bounty Approved — Funds Released!**',
       '',
       `**Bounty:** \`${formatAddress(bountyAddress)}\``,
-      `**Rating:** ${'★'.repeat(rating)}${'☆'.repeat(5 - rating)} (${rating}/5)`,
     ];
 
-    if (comment) {
-      lines.push(`**Feedback:** ${comment}`);
+    if (hasFeedback) {
+      lines.push(`**Rating:** ${'★'.repeat(rating)}${'☆'.repeat(5 - rating)} (${rating}/5)`);
+      if (comment) {
+        lines.push(`**Feedback:** ${comment}`);
+      }
     }
 
     lines.push('');
-    lines.push(`**Approval tx:** [${approveResult.txHash.slice(0, 10)}...](${explorerUrl})`);
+    lines.push(`**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`);
 
-    if (repTxHash) {
-      const repUrl = getExplorerTxUrl('base', repTxHash);
-      lines.push(`**Reputation tx:** [${repTxHash.slice(0, 10)}...](${repUrl})`);
+    if (hasFeedback) {
+      lines.push('');
+      lines.push('Reputation feedback recorded on-chain for the worker.');
     }
 
     return {
