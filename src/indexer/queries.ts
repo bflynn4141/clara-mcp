@@ -105,6 +105,8 @@ export interface IndexStats {
   approvedCount: number;
   expiredCount: number;
   cancelledCount: number;
+  rejectedCount: number;
+  resolvedCount: number;
   lastSyncedBlock: number;
 }
 
@@ -112,10 +114,10 @@ export function getIndexStats(): IndexStats {
   const index = getIndex();
   const all = allBounties();
 
-  const counts = { open: 0, claimed: 0, submitted: 0, approved: 0, expired: 0, cancelled: 0 };
+  const counts = { open: 0, claimed: 0, submitted: 0, approved: 0, expired: 0, cancelled: 0, rejected: 0, resolved: 0 };
   for (const b of all) {
     if (b.status in counts) {
-      counts[b.status]++;
+      counts[b.status as keyof typeof counts]++;
     }
   }
 
@@ -127,6 +129,8 @@ export function getIndexStats(): IndexStats {
     approvedCount: counts.approved,
     expiredCount: counts.expired,
     cancelledCount: counts.cancelled,
+    rejectedCount: counts.rejected,
+    resolvedCount: counts.resolved,
     lastSyncedBlock: index?.lastBlock ?? 0,
   };
 }

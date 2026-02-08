@@ -235,6 +235,20 @@ export const BOUNTY_FACTORY_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
+  {
+    inputs: [{ name: '_bondRate', type: 'uint256' }],
+    name: 'setBondRate',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'bondRate',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 export const BOUNTY_ABI = [
@@ -351,6 +365,69 @@ export const BOUNTY_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
+  {
+    inputs: [],
+    name: 'reject',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'autoApprove',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'unclaim',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'posterBond',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'workerBond',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'bondRate',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'submittedAt',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'rejectionCount',
+    outputs: [{ name: '', type: 'uint8' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'REVIEW_PERIOD',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 /**
@@ -455,6 +532,8 @@ export const BOUNTY_FACTORY_EVENTS = [
       { name: 'poster', type: 'address', indexed: true },
       { name: 'token', type: 'address', indexed: false },
       { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'posterBond', type: 'uint256', indexed: false },
+      { name: 'bondRate', type: 'uint256', indexed: false },
       { name: 'deadline', type: 'uint256', indexed: false },
       { name: 'taskURI', type: 'string', indexed: false },
       { name: 'skillTags', type: 'string[]', indexed: false },
@@ -504,6 +583,23 @@ export const BOUNTY_EVENTS = [
     name: 'BountyCancelled',
     inputs: [
       { name: 'poster', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'BountyRejected',
+    inputs: [
+      { name: 'poster', type: 'address', indexed: true },
+      { name: 'claimer', type: 'address', indexed: true },
+      { name: 'rejectionCount', type: 'uint8', indexed: false },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'AutoApproved',
+    inputs: [
+      { name: 'claimer', type: 'address', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
     ],
   },

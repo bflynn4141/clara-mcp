@@ -150,6 +150,15 @@ describe('work_approve', () => {
       expect(result.content[0].text).toContain('Reputation feedback recorded');
     });
 
+    it('mentions bonds being returned', async () => {
+      const result = await handleWorkApprove({
+        bountyAddress: TEST_BOUNTY,
+        rating: 4,
+      }, makeCtx());
+
+      expect(result.content[0].text).toContain('bonds have been returned');
+    });
+
     it('encodes correct ABI args for approveWithFeedback', async () => {
       await handleWorkApprove({
         bountyAddress: TEST_BOUNTY,

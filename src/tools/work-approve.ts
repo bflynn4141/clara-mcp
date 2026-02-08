@@ -127,6 +127,7 @@ export async function handleWorkApprove(
       '✅ **Bounty Approved — Funds Released!**',
       '',
       `**Bounty:** \`${formatAddress(bountyAddress)}\``,
+      'Both poster and worker bonds have been returned.',
     ];
 
     if (hasFeedback) {

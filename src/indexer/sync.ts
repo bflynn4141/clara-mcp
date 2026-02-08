@@ -94,6 +94,8 @@ export async function syncFromChain(): Promise<void> {
             poster: Hex;
             token: Hex;
             amount: bigint;
+            posterBond: bigint;
+            bondRate: bigint;
             deadline: bigint;
             taskURI: string;
             skillTags: readonly string[];
@@ -112,6 +114,8 @@ export async function syncFromChain(): Promise<void> {
               status: 'open',
               createdBlock: Number(log.blockNumber),
               createdTxHash: log.transactionHash ?? '',
+              posterBond: args.posterBond.toString(),
+              bondRate: Number(args.bondRate),
             };
           }
         }
@@ -255,6 +259,17 @@ function applyLifecycleEvent(
     }
     case 'BountyCancelled': {
       record.status = 'cancelled';
+      break;
+    }
+    case 'BountyRejected': {
+      const args = event.args as { poster: Hex; claimer: Hex; rejectionCount: number };
+      const count = Number(args.rejectionCount);
+      record.rejectionCount = count;
+      record.status = count >= 2 ? 'resolved' : 'rejected';
+      break;
+    }
+    case 'AutoApproved': {
+      record.status = 'approved';
       break;
     }
   }

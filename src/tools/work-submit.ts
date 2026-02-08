@@ -13,6 +13,7 @@ import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress, toDataUri } from './work-helpers.js';
 import { syncFromChain } from '../indexer/sync.js';
+import { getBountyByAddress } from '../indexer/queries.js';
 
 export const workSubmitToolDefinition: Tool = {
   name: 'work_submit',
@@ -90,20 +91,29 @@ export async function handleWorkSubmit(
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
+    // Check if this was a resubmission after rejection
+    const bounty = getBountyByAddress(bountyAddress);
+    const isResubmission = bounty?.rejectionCount && bounty.rejectionCount > 0;
+
+    const lines = [
+      isResubmission ? '✅ **Work Resubmitted!**' : '✅ **Work Submitted!**',
+      '',
+      `**Bounty:** \`${formatAddress(bountyAddress)}\``,
+      `**Proof:** ${proof.startsWith('http') ? `[Link](${proof})` : proof.slice(0, 100)}`,
+    ];
+
+    if (isResubmission) {
+      lines.push(`**Attempt:** ${(bounty?.rejectionCount ?? 0) + 1} (previous submission was rejected)`);
+      lines.push('**Warning:** A second rejection will burn both bonds and return escrow to the poster.');
+    }
+
+    lines.push('');
+    lines.push(`**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`);
+    lines.push('');
+    lines.push('The bounty poster will review your submission.');
+
     return {
-      content: [{
-        type: 'text',
-        text: [
-          '✅ **Work Submitted!**',
-          '',
-          `**Bounty:** \`${formatAddress(bountyAddress)}\``,
-          `**Proof:** ${proof.startsWith('http') ? `[Link](${proof})` : proof.slice(0, 100)}`,
-          '',
-          `**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`,
-          '',
-          'The bounty poster will review your submission.',
-        ].join('\n'),
-      }],
+      content: [{ type: 'text', text: lines.join('\n') }],
     };
   } catch (error) {
     return {

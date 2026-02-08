@@ -111,6 +111,7 @@ import { workClaimToolDefinition, handleWorkClaim } from './tools/work-claim.js'
 import { workSubmitToolDefinition, handleWorkSubmit } from './tools/work-submit.js';
 import { workApproveToolDefinition, handleWorkApprove } from './tools/work-approve.js';
 import { workCancelToolDefinition, handleWorkCancel } from './tools/work-cancel.js';
+import { workRejectToolDefinition, handleWorkReject } from './tools/work-reject.js';
 import { workListToolDefinition, handleWorkList } from './tools/work-list.js';
 import { workReputationToolDefinition, handleWorkReputation } from './tools/work-reputation.js';
 import { workRateToolDefinition, handleWorkRate } from './tools/work-rate.js';
@@ -287,6 +288,12 @@ registerTool(workApproveToolDefinition, handleWorkApprove, {
 registerTool(workCancelToolDefinition, handleWorkCancel, {
   gasPreflight: 'check',
   gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
+});
+
+// Reject submission (auth, on-chain tx)
+registerTool(workRejectToolDefinition, handleWorkReject, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 150_000n }),
 });
 
 // List your bounties (auth needed for wallet address, no gas)

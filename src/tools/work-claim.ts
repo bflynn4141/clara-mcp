@@ -11,8 +11,9 @@ import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
 import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
-import { formatAddress } from './work-helpers.js';
+import { formatAddress, formatRawAmount } from './work-helpers.js';
 import { syncFromChain } from '../indexer/sync.js';
+import { getBountyByAddress } from '../indexer/queries.js';
 
 export const workClaimToolDefinition: Tool = {
   name: 'work_claim',
@@ -63,6 +64,14 @@ export async function handleWorkClaim(
   }
 
   try {
+    // Look up bounty to show bond info
+    const bounty = getBountyByAddress(bountyAddress);
+    let workerBondInfo = '';
+    if (bounty && bounty.bondRate && bounty.bondRate > 0) {
+      const bondAmount = (BigInt(bounty.amount) * BigInt(bounty.bondRate)) / 10000n;
+      workerBondInfo = formatRawAmount(bondAmount.toString(), bounty.token);
+    }
+
     const data = encodeFunctionData({
       abi: BOUNTY_ABI,
       functionName: 'claim',
@@ -85,20 +94,24 @@ export async function handleWorkClaim(
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
+    const lines = [
+      '✅ **Bounty Claimed!**',
+      '',
+      `**Bounty:** \`${formatAddress(bountyAddress)}\``,
+      `**Claimer:** \`${formatAddress(ctx.walletAddress)}\``,
+    ];
+
+    if (workerBondInfo) {
+      lines.push(`**Worker Bond:** ${workerBondInfo} (held in escrow, returned on approval)`);
+    }
+
+    lines.push('');
+    lines.push(`**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`);
+    lines.push('');
+    lines.push('Submit your work with `work_submit` when ready.');
+
     return {
-      content: [{
-        type: 'text',
-        text: [
-          '✅ **Bounty Claimed!**',
-          '',
-          `**Bounty:** \`${formatAddress(bountyAddress)}\``,
-          `**Claimer:** \`${formatAddress(ctx.walletAddress)}\``,
-          '',
-          `**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`,
-          '',
-          'Submit your work with `work_submit` when ready.',
-        ].join('\n'),
-      }],
+      content: [{ type: 'text', text: lines.join('\n') }],
     };
   } catch (error) {
     return {

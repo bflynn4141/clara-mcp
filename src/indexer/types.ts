@@ -5,8 +5,8 @@
  * on-chain bounty lifecycle from BountyFactory + Bounty clone events.
  */
 
-/** Mirrors the Solidity Bounty.Status enum (0-5) */
-export type BountyStatus = 'open' | 'claimed' | 'submitted' | 'approved' | 'expired' | 'cancelled';
+/** Mirrors the Solidity Bounty.Status enum (0-7) */
+export type BountyStatus = 'open' | 'claimed' | 'submitted' | 'approved' | 'expired' | 'cancelled' | 'rejected' | 'resolved';
 
 /** Maps Solidity enum index → string status */
 export const STATUS_MAP: Record<number, BountyStatus> = {
@@ -16,6 +16,8 @@ export const STATUS_MAP: Record<number, BountyStatus> = {
   3: 'approved',
   4: 'expired',
   5: 'cancelled',
+  6: 'rejected',
+  7: 'resolved',
 };
 
 /**
@@ -53,6 +55,16 @@ export interface BountyRecord {
   createdTxHash: string;
   /** Block number of the most recent status change */
   updatedBlock?: number;
+  /** Poster bond amount (raw bigint string) */
+  posterBond?: string;
+  /** Worker bond amount (raw bigint string) */
+  workerBond?: string;
+  /** Bond rate in basis points (1000 = 10%) */
+  bondRate?: number;
+  /** Number of times the submission has been rejected (0, 1, or 2) */
+  rejectionCount?: number;
+  /** Unix timestamp of the most recent work submission */
+  submittedAt?: number;
 }
 
 /**

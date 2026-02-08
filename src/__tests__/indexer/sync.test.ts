@@ -47,6 +47,8 @@ vi.mock('../../config/clara-contracts.js', () => {
         { name: 'poster', type: 'address', indexed: true },
         { name: 'token', type: 'address', indexed: false },
         { name: 'amount', type: 'uint256', indexed: false },
+        { name: 'posterBond', type: 'uint256', indexed: false },
+        { name: 'bondRate', type: 'uint256', indexed: false },
         { name: 'deadline', type: 'uint256', indexed: false },
         { name: 'taskURI', type: 'string', indexed: false },
         { name: 'skillTags', type: 'string[]', indexed: false },
@@ -92,6 +94,23 @@ vi.mock('../../config/clara-contracts.js', () => {
       name: 'BountyCancelled',
       inputs: [
         { name: 'poster', type: 'address', indexed: true },
+        { name: 'amount', type: 'uint256', indexed: false },
+      ],
+    },
+    {
+      type: 'event' as const,
+      name: 'BountyRejected',
+      inputs: [
+        { name: 'poster', type: 'address', indexed: true },
+        { name: 'claimer', type: 'address', indexed: true },
+        { name: 'rejectionCount', type: 'uint8', indexed: false },
+      ],
+    },
+    {
+      type: 'event' as const,
+      name: 'AutoApproved',
+      inputs: [
+        { name: 'claimer', type: 'address', indexed: true },
         { name: 'amount', type: 'uint256', indexed: false },
       ],
     },
@@ -223,6 +242,8 @@ function makeBountyCreatedLog(opts: {
   deadline: bigint;
   taskURI: string;
   skillTags: readonly string[];
+  posterBond?: bigint;
+  bondRate?: bigint;
   blockNumber?: bigint;
   transactionHash?: Hex | null;
 }): any {
@@ -233,6 +254,8 @@ function makeBountyCreatedLog(opts: {
       poster: opts.poster,
       token: opts.token,
       amount: opts.amount,
+      posterBond: opts.posterBond ?? (opts.amount * 1000n / 10000n),
+      bondRate: opts.bondRate ?? 1000n,
       deadline: opts.deadline,
       taskURI: opts.taskURI,
       skillTags: opts.skillTags,
@@ -412,6 +435,27 @@ describe('sync', () => {
       const record = syncModule.getIndex()!.bounties['0xbountydeadline'];
       expect(typeof record.deadline).toBe('number');
       expect(record.deadline).toBe(1700000000);
+    });
+
+    it('stores posterBond and bondRate from BountyCreated event', async () => {
+      const log = makeBountyCreatedLog({
+        bountyAddress: '0xBountyBond' as Hex,
+        poster: '0xP' as Hex,
+        token: '0xT' as Hex,
+        amount: 1000000n,
+        deadline: 100n,
+        taskURI: '',
+        skillTags: [],
+        posterBond: 100000n,
+        bondRate: 1000n,
+      });
+      mockGetLogs.mockResolvedValueOnce([log]);
+
+      await syncModule.syncFromChain();
+
+      const record = syncModule.getIndex()!.bounties['0xbountybond'];
+      expect(record.posterBond).toBe('100000');
+      expect(record.bondRate).toBe(1000);
     });
 
     it('copies skillTags as mutable array', async () => {
@@ -642,6 +686,82 @@ describe('sync', () => {
 
       const record = syncModule.getIndex()!.bounties['0xbounty1'];
       expect(record.updatedBlock).toBe(155);
+    });
+
+    it('applies BountyRejected (1st) - sets status to rejected, stores rejectionCount', async () => {
+      seedBounty();
+      vi.resetModules();
+      syncModule = await import('../../indexer/sync.js');
+
+      mockGetLogs.mockResolvedValueOnce([]);
+      mockGetLogs.mockResolvedValueOnce([
+        makeLifecycleLog({
+          eventName: 'BountyRejected',
+          address: '0xBounty1' as Hex,
+          args: {
+            poster: '0xPoster' as Hex,
+            claimer: '0xClaimer1' as Hex,
+            rejectionCount: 1,
+          },
+          blockNumber: 170n,
+        }),
+      ]);
+
+      await syncModule.syncFromChain();
+
+      const record = syncModule.getIndex()!.bounties['0xbounty1'];
+      expect(record.status).toBe('rejected');
+      expect(record.rejectionCount).toBe(1);
+    });
+
+    it('applies BountyRejected (2nd) - sets status to resolved', async () => {
+      seedBounty();
+      vi.resetModules();
+      syncModule = await import('../../indexer/sync.js');
+
+      mockGetLogs.mockResolvedValueOnce([]);
+      mockGetLogs.mockResolvedValueOnce([
+        makeLifecycleLog({
+          eventName: 'BountyRejected',
+          address: '0xBounty1' as Hex,
+          args: {
+            poster: '0xPoster' as Hex,
+            claimer: '0xClaimer1' as Hex,
+            rejectionCount: 2,
+          },
+          blockNumber: 175n,
+        }),
+      ]);
+
+      await syncModule.syncFromChain();
+
+      const record = syncModule.getIndex()!.bounties['0xbounty1'];
+      expect(record.status).toBe('resolved');
+      expect(record.rejectionCount).toBe(2);
+    });
+
+    it('applies AutoApproved - sets status to approved', async () => {
+      seedBounty();
+      vi.resetModules();
+      syncModule = await import('../../indexer/sync.js');
+
+      mockGetLogs.mockResolvedValueOnce([]);
+      mockGetLogs.mockResolvedValueOnce([
+        makeLifecycleLog({
+          eventName: 'AutoApproved',
+          address: '0xBounty1' as Hex,
+          args: {
+            claimer: '0xClaimer1' as Hex,
+            amount: 1000000000000000000n,
+          },
+          blockNumber: 180n,
+        }),
+      ]);
+
+      await syncModule.syncFromChain();
+
+      const record = syncModule.getIndex()!.bounties['0xbounty1'];
+      expect(record.status).toBe('approved');
     });
 
     it('ignores lifecycle events for unknown bounty addresses', async () => {

@@ -123,11 +123,15 @@ export async function handleWorkPost(
     const amountWei = parseUnits(amount, token.decimals);
     const chainId = getChainId('base');
 
-    // Step 1: ERC-20 approve
+    // Step 1: ERC-20 approve (escrow + poster bond)
+    // The factory calculates posterBond = amount * bondRate / 10000
+    // We approve amount + posterBond so the factory can pull both in createBounty
+    const posterBondWei = (amountWei * 1000n) / 10000n; // 10% default bond rate
+    const totalApproval = amountWei + posterBondWei;
     const approveData = encodeFunctionData({
       abi: ERC20_APPROVE_ABI,
       functionName: 'approve',
-      args: [contracts.bountyFactory, amountWei],
+      args: [contracts.bountyFactory, totalApproval],
     });
 
     await signAndSendTransaction(ctx.session.walletId!, {
@@ -177,11 +181,18 @@ export async function handleWorkPost(
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
+    // Calculate poster bond for display (same formula as the factory)
+    const bondRateBps = 1000; // Default 10%, matches factory default
+    const posterBondAmount = (parseFloat(amount) * bondRateBps) / 10000;
+    const totalCost = parseFloat(amount) + posterBondAmount;
+
     const lines = [
       '✅ **Bounty Created!**',
       '',
       `**Task:** ${taskSummary}`,
-      `**Amount:** ${formatAmount(amount, token.symbol)}`,
+      `**Escrow:** ${formatAmount(amount, token.symbol)}`,
+      `**Poster Bond:** ${formatAmount(posterBondAmount.toString(), token.symbol)} (10% anti-griefing bond)`,
+      `**Total Cost:** ${formatAmount(totalCost.toString(), token.symbol)}`,
       `**Deadline:** ${formatDeadline(deadlineTimestamp)}`,
       `**Skills:** ${skills.length > 0 ? skills.join(', ') : 'any'}`,
       `**Posted by:** \`${formatAddress(ctx.walletAddress)}\``,
@@ -194,7 +205,7 @@ export async function handleWorkPost(
     lines.push('');
     lines.push(`**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`);
     lines.push('');
-    lines.push('Funds are locked in escrow. Use `work_cancel` to refund if unclaimed.');
+    lines.push('Funds + bond are locked in escrow. Bond is returned on approval/cancellation. Use `work_cancel` to refund if unclaimed.');
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],

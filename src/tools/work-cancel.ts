@@ -75,9 +75,10 @@ export async function handleWorkCancel(
       content: [{
         type: 'text',
         text: [
-          '✅ **Bounty Cancelled — Funds Refunded**',
+          '✅ **Bounty Cancelled — Funds + Bond Refunded**',
           '',
           `**Bounty:** \`${formatAddress(bountyAddress)}\``,
+          'Escrow and poster bond have been returned to your wallet.',
           '',
           `**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`,
         ].join('\n'),

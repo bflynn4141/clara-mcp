@@ -96,10 +96,10 @@ function makeIndex(bounties: Record<string, BountyRecord>, lastBlock = 37900000)
 
 describe('types', () => {
   describe('STATUS_MAP', () => {
-    it('maps all 6 Solidity enum indices (0-5) to string statuses', () => {
-      expect(Object.keys(STATUS_MAP).length).toBe(6);
+    it('maps all 8 Solidity enum indices (0-7) to string statuses', () => {
+      expect(Object.keys(STATUS_MAP).length).toBe(8);
       const keys = Object.keys(STATUS_MAP).map(Number);
-      expect(keys).toEqual(expect.arrayContaining([0, 1, 2, 3, 4, 5]));
+      expect(keys).toEqual(expect.arrayContaining([0, 1, 2, 3, 4, 5, 6, 7]));
     });
 
     it('maps index 0 to open', () => {
@@ -126,14 +126,22 @@ describe('types', () => {
       expect(STATUS_MAP[5]).toBe('cancelled');
     });
 
+    it('maps index 6 to rejected', () => {
+      expect(STATUS_MAP[6]).toBe('rejected');
+    });
+
+    it('maps index 7 to resolved', () => {
+      expect(STATUS_MAP[7]).toBe('resolved');
+    });
+
     it('returns undefined for out-of-range indices', () => {
-      expect(STATUS_MAP[6]).toBeUndefined();
+      expect(STATUS_MAP[8]).toBeUndefined();
       expect(STATUS_MAP[-1]).toBeUndefined();
     });
 
     it('all values are valid BountyStatus strings', () => {
       const validStatuses: BountyStatus[] = [
-        'open', 'claimed', 'submitted', 'approved', 'expired', 'cancelled',
+        'open', 'claimed', 'submitted', 'approved', 'expired', 'cancelled', 'rejected', 'resolved',
       ];
       for (const value of Object.values(STATUS_MAP)) {
         expect(validStatuses).toContain(value);
