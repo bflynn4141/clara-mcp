@@ -127,14 +127,14 @@ export interface BountyContracts {
 
 const BOUNTY_CONTRACTS: Record<ClaraNetwork, BountyContracts> = {
   testnet: {
-    identityRegistry: '0x949EaAD64Db780D1af71C07d5F124aa8A0e19B6c',  // MockIdentityRegistry on Sepolia
-    reputationRegistry: '0x3ea0a857251b15fF8A176abf188bF5100a7e00dC',  // MockReputationRegistry on Sepolia
-    bountyFactory: '0xfe92C74A3c1d81fE2927f0Bfd116D956dee6bCA7',
+    identityRegistry: '0xAee21064f9f7c24fd052CC3598A60Cc50591d1B3',  // MockIdentityRegistry on Sepolia (v2 w/ bonds)
+    reputationRegistry: '0xC7b13F1C1CA4E0DD42cc371fB31d86E75a84F042',  // MockReputationRegistry on Sepolia (v2 w/ bonds)
+    bountyFactory: '0xB53989afAac1Ab17f9a5d9920B48B90e93AFB73C',  // v2 w/ bonds
   },
   mainnet: {
     identityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
     reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
-    bountyFactory: '0x4fDd9E7014959503B91e4C21c0B25f1955413C75',
+    bountyFactory: '0x639A05560Cf089187494f9eE357D7D1c69b7558e',  // v2 w/ bonds
   },
 };
 
@@ -450,8 +450,8 @@ export const ERC20_APPROVE_ABI = [
 
 /** First block to scan for BountyCreated events, per network */
 const FACTORY_DEPLOY_BLOCKS: Record<ClaraNetwork, bigint> = {
-  testnet: 37897669n,   // Base Sepolia deployment
-  mainnet: 41844986n,   // Base mainnet deployment (0x27e80fa)
+  testnet: 37399239n,   // Base Sepolia deployment (v2 w/ bonds)
+  mainnet: 41888723n,   // Base mainnet deployment (v2 w/ bonds)
 };
 
 export const FACTORY_DEPLOY_BLOCK = FACTORY_DEPLOY_BLOCKS[getClaraNetwork()];

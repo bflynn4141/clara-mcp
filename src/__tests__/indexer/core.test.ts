@@ -37,7 +37,7 @@ vi.mock('../../config/clara-contracts.js', () => ({
     chainId: 84532,
     rpcUrl: 'https://sepolia.base.org',
   })),
-  FACTORY_DEPLOY_BLOCK: 37897669n,
+  FACTORY_DEPLOY_BLOCK: 37399239n,
 }));
 
 // Mock the sync module for queries tests
@@ -182,7 +182,7 @@ describe('store', () => {
 
       const result = loadIndex();
 
-      expect(result.lastBlock).toBe(37897669);
+      expect(result.lastBlock).toBe(37399239);
       expect(result.factoryAddress).toBe('0xfactoryaddr');
       expect(result.chainId).toBe(84532);
       expect(result.bounties).toEqual({});
@@ -217,7 +217,7 @@ describe('store', () => {
 
       const result = loadIndex();
 
-      expect(result.lastBlock).toBe(37897669);
+      expect(result.lastBlock).toBe(37399239);
       expect(result.factoryAddress).toBe('0xfactoryaddr');
       expect(result.bounties).toEqual({});
     });
@@ -240,7 +240,7 @@ describe('store', () => {
       const result = loadIndex();
 
       // Should reset to default because factory address mismatch
-      expect(result.lastBlock).toBe(37897669);
+      expect(result.lastBlock).toBe(37399239);
       expect(result.factoryAddress).toBe('0xfactoryaddr');
       expect(result.bounties).toEqual({});
     });
@@ -260,7 +260,7 @@ describe('store', () => {
 
       const result = loadIndex();
 
-      expect(result.lastBlock).toBe(37897669);
+      expect(result.lastBlock).toBe(37399239);
     });
 
     it('fills in missing bounties with empty object', () => {
