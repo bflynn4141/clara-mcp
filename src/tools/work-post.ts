@@ -1,0 +1,225 @@
+/**
+ * work_post - Create a Bounty
+ *
+ * Posts a new bounty on-chain via BountyFactory.createBounty().
+ * Handles ERC-20 approval + bounty creation in sequence.
+ */
+
+import { encodeFunctionData, parseUnits, type Hex } from 'viem';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { ToolContext, ToolResult } from '../middleware.js';
+import { signAndSendTransaction } from '../para/transactions.js';
+import {
+  getBountyContracts,
+  BOUNTY_FACTORY_ABI,
+  ERC20_APPROVE_ABI,
+} from '../config/clara-contracts.js';
+import { getChainId, getExplorerTxUrl } from '../config/chains.js';
+import { resolveToken } from '../config/tokens.js';
+import {
+  toDataUri,
+  formatAddress,
+  formatAmount,
+  parseDeadline,
+  formatDeadline,
+  indexerFetch,
+} from './work-helpers.js';
+
+export const workPostToolDefinition: Tool = {
+  name: 'work_post',
+  description: `Create a bounty in the Clara marketplace.
+
+Funds are locked in escrow on-chain until the bounty is completed or cancelled.
+Requires an ERC-20 token approval followed by the bounty creation transaction.
+
+**Example:**
+\`\`\`json
+{"amount": "50", "token": "USDC", "deadline": "3 days", "taskSummary": "Write unit tests for the auth module", "skills": ["typescript", "testing"]}
+\`\`\``,
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      amount: {
+        type: 'string',
+        description: 'Bounty amount in human units (e.g., "50" for 50 USDC)',
+      },
+      token: {
+        type: 'string',
+        default: 'USDC',
+        description: 'Token to pay with (default: USDC)',
+      },
+      deadline: {
+        type: 'string',
+        description: 'Deadline as ISO date ("2025-03-01") or relative ("3 days", "1 week")',
+      },
+      taskSummary: {
+        type: 'string',
+        description: 'Description of the work to be done',
+      },
+      skills: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Skills needed (e.g., ["solidity", "security"])',
+      },
+    },
+    required: ['amount', 'deadline', 'taskSummary'],
+  },
+};
+
+export async function handleWorkPost(
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const amount = args.amount as string;
+  const tokenInput = (args.token as string) || 'USDC';
+  const deadlineInput = args.deadline as string;
+  const taskSummary = args.taskSummary as string;
+  const skills = (args.skills as string[]) || [];
+
+  // Validate inputs
+  if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+    return {
+      content: [{ type: 'text', text: '❌ Invalid amount. Must be a positive number.' }],
+      isError: true,
+    };
+  }
+
+  if (!taskSummary || taskSummary.trim().length === 0) {
+    return {
+      content: [{ type: 'text', text: '❌ Task summary is required.' }],
+      isError: true,
+    };
+  }
+
+  // Resolve token
+  const token = resolveToken(tokenInput, 'base');
+  if (!token) {
+    return {
+      content: [{
+        type: 'text',
+        text: `❌ Unknown token: ${tokenInput}. Supported: USDC, USDT, DAI, WETH.`,
+      }],
+      isError: true,
+    };
+  }
+
+  // Parse deadline
+  let deadlineTimestamp: number;
+  try {
+    deadlineTimestamp = parseDeadline(deadlineInput);
+  } catch (e) {
+    return {
+      content: [{
+        type: 'text',
+        text: `❌ ${e instanceof Error ? e.message : 'Invalid deadline format'}`,
+      }],
+      isError: true,
+    };
+  }
+
+  try {
+    const contracts = getBountyContracts();
+    const amountWei = parseUnits(amount, token.decimals);
+    const chainId = getChainId('base');
+
+    // Step 1: ERC-20 approve
+    const approveData = encodeFunctionData({
+      abi: ERC20_APPROVE_ABI,
+      functionName: 'approve',
+      args: [contracts.bountyFactory, amountWei],
+    });
+
+    await signAndSendTransaction(ctx.session.walletId!, {
+      to: token.address,
+      value: 0n,
+      data: approveData,
+      chainId,
+    });
+
+    // Step 2: Create bounty
+    const taskMetadata = {
+      summary: taskSummary,
+      skills,
+      postedBy: ctx.walletAddress,
+      timestamp: new Date().toISOString(),
+    };
+    const taskURI = toDataUri(taskMetadata);
+
+    const createData = encodeFunctionData({
+      abi: BOUNTY_FACTORY_ABI,
+      functionName: 'createBounty',
+      args: [
+        token.address,
+        amountWei,
+        BigInt(deadlineTimestamp),
+        taskURI,
+        skills,
+      ],
+    });
+
+    const result = await signAndSendTransaction(ctx.session.walletId!, {
+      to: contracts.bountyFactory,
+      value: 0n,
+      data: createData,
+      chainId,
+    });
+
+    // Index the bounty (best-effort)
+    let bountyAddress: string | null = null;
+    try {
+      const indexerResp = await indexerFetch('/api/bounties', {
+        method: 'POST',
+        body: JSON.stringify({
+          poster: ctx.walletAddress,
+          token: token.address,
+          tokenSymbol: token.symbol,
+          amount,
+          deadline: deadlineTimestamp,
+          taskSummary,
+          skills,
+          txHash: result.txHash,
+        }),
+      });
+
+      if (indexerResp.ok) {
+        const data = await indexerResp.json() as { bountyAddress?: string };
+        bountyAddress = data.bountyAddress ?? null;
+      }
+    } catch (e) {
+      console.error(`[work] Indexer POST failed (non-fatal): ${e}`);
+    }
+
+    const explorerUrl = getExplorerTxUrl('base', result.txHash);
+
+    const lines = [
+      '✅ **Bounty Created!**',
+      '',
+      `**Task:** ${taskSummary}`,
+      `**Amount:** ${formatAmount(amount, token.symbol)}`,
+      `**Deadline:** ${formatDeadline(deadlineTimestamp)}`,
+      `**Skills:** ${skills.length > 0 ? skills.join(', ') : 'any'}`,
+      `**Posted by:** \`${formatAddress(ctx.walletAddress)}\``,
+    ];
+
+    if (bountyAddress) {
+      lines.push(`**Bounty Contract:** \`${formatAddress(bountyAddress)}\``);
+    }
+
+    lines.push('');
+    lines.push(`**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`);
+    lines.push('');
+    lines.push('Funds are locked in escrow. Use `work_cancel` to refund if unclaimed.');
+
+    return {
+      content: [{ type: 'text', text: lines.join('\n') }],
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: 'text',
+        text: `❌ Bounty creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      }],
+      isError: true,
+    };
+  }
+}

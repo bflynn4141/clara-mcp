@@ -22,8 +22,42 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { appendFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 
 import { registerTool, getAllToolDefinitions, dispatch } from './tool-registry.js';
+
+// ─── Debug Trace Logging ──────────────────────────────────────────────
+// Writes to ~/.clara/mcp-debug.log to diagnose stdio loading issues.
+// This file can be checked after a fresh session to see if the server
+// started, received initialize, and responded to tools/list.
+
+const DEBUG_LOG = join(homedir(), '.clara', 'mcp-debug.log');
+
+function debugLog(msg: string): void {
+  try {
+    mkdirSync(join(homedir(), '.clara'), { recursive: true });
+    const ts = new Date().toISOString();
+    appendFileSync(DEBUG_LOG, `[${ts}] [pid:${process.pid}] ${msg}\n`);
+  } catch {
+    // Silently ignore — debug logging must never break the server
+  }
+}
+
+// Log process startup immediately (before any imports could fail)
+debugLog(`STARTUP cwd=${process.cwd()} argv=${process.argv.join(' ')} node=${process.version}`);
+
+// Catch fatal errors
+process.on('uncaughtException', (err) => {
+  debugLog(`UNCAUGHT_EXCEPTION: ${err.message}\n${err.stack}`);
+  console.error('[clara] Uncaught exception:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  debugLog(`UNHANDLED_REJECTION: ${reason}`);
+  console.error('[clara] Unhandled rejection:', reason);
+});
 
 // Tool definitions and handlers
 import {
@@ -64,9 +98,30 @@ import {
   executePreparedToolDefinition,
   handleExecutePreparedRequest,
 } from './tools/execute-prepared.js';
+import {
+  claimAirdropToolDefinition,
+  handleClaimAirdropRequest,
+} from './tools/claim-airdrop.js';
+
+// Work/Bounty Tools (ERC-8004)
+import { workRegisterToolDefinition, handleWorkRegister } from './tools/work-register.js';
+import { workPostToolDefinition, handleWorkPost } from './tools/work-post.js';
+import { workBrowseToolDefinition, handleWorkBrowse } from './tools/work-browse.js';
+import { workClaimToolDefinition, handleWorkClaim } from './tools/work-claim.js';
+import { workSubmitToolDefinition, handleWorkSubmit } from './tools/work-submit.js';
+import { workApproveToolDefinition, handleWorkApprove } from './tools/work-approve.js';
+import { workCancelToolDefinition, handleWorkCancel } from './tools/work-cancel.js';
+import { workListToolDefinition, handleWorkList } from './tools/work-list.js';
+import { workReputationToolDefinition, handleWorkReputation } from './tools/work-reputation.js';
+import { workRateToolDefinition, handleWorkRate } from './tools/work-rate.js';
+import { workFindToolDefinition, handleWorkFind } from './tools/work-find.js';
+import { workProfileToolDefinition, handleWorkProfile } from './tools/work-profile.js';
 
 // Providers
 import { initProviders } from './providers/index.js';
+
+// Bounty Indexer
+import { initIndexer } from './indexer/index.js';
 
 // Gas preflight extractors
 import { parseUnits } from 'viem';
@@ -189,6 +244,88 @@ registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
   gasExtractor: executePreparedGasExtractor,
 });
 
+// CLARA Airdrop (auth required — uses wallet address for claim)
+registerTool(claimAirdropToolDefinition, handleClaimAirdropRequest, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
+});
+
+// ─── Work/Bounty Tools (ERC-8004) ────────────────────────────────────
+
+// Agent registration (auth, on-chain tx)
+registerTool(workRegisterToolDefinition, handleWorkRegister, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
+});
+
+// Post bounty (auth, spending check, on-chain tx)
+registerTool(workPostToolDefinition, handleWorkPost, {
+  checksSpending: true,
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 300_000n }),
+});
+
+// Claim bounty (auth, on-chain tx)
+registerTool(workClaimToolDefinition, handleWorkClaim, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
+});
+
+// Submit work (auth, on-chain tx)
+registerTool(workSubmitToolDefinition, handleWorkSubmit, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
+});
+
+// Approve submission (auth, on-chain tx + reputation)
+registerTool(workApproveToolDefinition, handleWorkApprove, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
+});
+
+// Cancel bounty (auth, on-chain tx)
+registerTool(workCancelToolDefinition, handleWorkCancel, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
+});
+
+// List your bounties (auth needed for wallet address, no gas)
+registerTool(workListToolDefinition, handleWorkList, {
+  gasPreflight: 'none',
+});
+
+// Rate an agent (auth, on-chain tx)
+registerTool(workRateToolDefinition, handleWorkRate, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 150_000n }),
+});
+
+// Browse bounties (public)
+registerTool(workBrowseToolDefinition, handleWorkBrowse, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// Search agent directory (public)
+registerTool(workFindToolDefinition, handleWorkFind, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// View agent profile (public)
+registerTool(workProfileToolDefinition, handleWorkProfile, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// View agent reputation (public)
+registerTool(workReputationToolDefinition, handleWorkReputation, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+debugLog(`TOOLS_REGISTERED count=${getAllToolDefinitions().length}`);
+
 // ─── Config Validation ──────────────────────────────────────────────
 
 function validateConfig(): string[] {
@@ -216,9 +353,11 @@ function createServer(): Server {
     },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: getAllToolDefinitions(),
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = getAllToolDefinitions();
+    debugLog(`TOOLS_LIST requested — returning ${tools.length} tools`);
+    return { tools };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
@@ -242,11 +381,14 @@ async function main(): Promise<void> {
     console.error(`[clara] Warning: ${err}`);
   }
 
+  debugLog('CREATING server and transport');
   const server = createServer();
   const transport = new StdioServerTransport();
 
   // Connect FIRST so Claude Code gets tools immediately
+  debugLog('CONNECTING to stdio transport...');
   await server.connect(transport);
+  debugLog('CONNECTED to stdio — server ready');
   console.error('Clara MCP Server running on stdio');
 
   // Initialize providers in background (non-blocking)
@@ -255,9 +397,18 @@ async function main(): Promise<void> {
     console.error('Provider initialization error:', error);
     // Don't exit - core wallet tools still work without providers
   });
+
+  // Initialize bounty indexer in background (non-blocking)
+  // Syncs BountyFactory + Bounty events from chain, then polls every 15s.
+  // If this fails, work_browse/work_list return empty results (not errors).
+  initIndexer().catch((error) => {
+    console.error('[indexer] Initialization error:', error);
+    debugLog(`INDEXER_INIT_ERROR: ${error instanceof Error ? error.message : error}`);
+  });
 }
 
 main().catch((error) => {
+  debugLog(`FATAL: ${error.message}\n${error.stack}`);
   console.error('Fatal error:', error);
   process.exit(1);
 });
