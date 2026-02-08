@@ -2,17 +2,17 @@
  * Tests for swap tool
  *
  * Tests wallet_swap tool with mocked Li.Fi API responses.
- * Updated to match current source behavior where:
- * - Session is checked before input validation
- * - required: [] (inputs are validated at runtime, not schema-level)
- * - Imports come from para/swap.js, not services/lifi.js
- * - Herd provider, quote cache, and spending limits are used
+ *
+ * NOTE: Session validation is handled by middleware (not the handler).
+ * The handler receives a pre-validated ToolContext from middleware.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { swapToolDefinition, handleSwapRequest } from '../../tools/swap.js';
+import type { ToolContext } from '../../middleware.js';
+import type { Hex } from 'viem';
 
-// Mock session storage
+// Mock session storage (used by middleware, kept for compatibility)
 vi.mock('../../storage/session.js', () => ({
   getSession: vi.fn(),
   touchSession: vi.fn(),
@@ -57,11 +57,37 @@ vi.mock('../../storage/spending.js', () => ({
 vi.mock('../../config/chains.js', () => ({
   isSupportedChain: vi.fn(() => true),
   getChainId: vi.fn(() => 8453),
+  getRpcUrl: vi.fn(() => 'https://mainnet.base.org'),
+  CHAINS: {
+    base: { chainId: 8453, chain: { id: 8453, name: 'Base' }, explorerUrl: 'https://basescan.org' },
+  },
 }));
 
-import { getSession } from '../../storage/session.js';
+// Mock gas preflight
+vi.mock('../../gas-preflight.js', () => ({
+  requireGas: vi.fn(),
+  checkGasPreflight: vi.fn(),
+}));
+
 import { getSwapQuote, executeSwap } from '../../para/swap.js';
 import { signAndSendTransaction } from '../../para/transactions.js';
+
+// ─── Test Helpers ───────────────────────────────────────────────────
+
+const TEST_ADDRESS = '0x1234567890123456789012345678901234567890' as Hex;
+
+function makeCtx(address: Hex = TEST_ADDRESS): ToolContext {
+  return {
+    session: {
+      authenticated: true,
+      address,
+      walletId: 'test-wallet-id',
+    } as any,
+    walletAddress: address,
+  };
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────
 
 describe('Swap Tool', () => {
   beforeEach(() => {
@@ -76,8 +102,6 @@ describe('Swap Tool', () => {
     });
 
     it('has no required fields (validation is runtime)', () => {
-      // The tool accepts either quoteId OR fromToken/toToken/amount/chain,
-      // so no fields are required at the schema level
       expect(swapToolDefinition.inputSchema.required).toEqual([]);
     });
 
@@ -94,22 +118,12 @@ describe('Swap Tool', () => {
   });
 
   describe('handleSwapRequest - Input Validation', () => {
-    beforeEach(() => {
-      // Session check happens BEFORE input validation in the source,
-      // so we need a valid session for input validation tests
-      vi.mocked(getSession).mockResolvedValue({
-        authenticated: true,
-        address: '0x1234567890123456789012345678901234567890',
-        walletId: 'test-wallet-id',
-      });
-    });
-
     it('rejects missing fromToken', async () => {
       const result = await handleSwapRequest({
         toToken: 'USDC',
         amount: '1.0',
         chain: 'base',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Missing required parameters');
@@ -120,7 +134,7 @@ describe('Swap Tool', () => {
         fromToken: 'ETH',
         amount: '1.0',
         chain: 'base',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Missing required parameters');
@@ -131,7 +145,7 @@ describe('Swap Tool', () => {
         fromToken: 'ETH',
         toToken: 'USDC',
         chain: 'base',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Missing required parameters');
@@ -143,52 +157,14 @@ describe('Swap Tool', () => {
         toToken: 'USDC',
         amount: '1.0',
         chain: 'solana',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Unsupported chain');
     });
   });
 
-  describe('handleSwapRequest - Session', () => {
-    it('requires wallet setup', async () => {
-      vi.mocked(getSession).mockResolvedValue(null);
-
-      const result = await handleSwapRequest({
-        fromToken: 'ETH',
-        toToken: 'USDC',
-        amount: '1.0',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('No wallet configured');
-    });
-
-    it('requires authenticated session', async () => {
-      vi.mocked(getSession).mockResolvedValue({
-        authenticated: false,
-      });
-
-      const result = await handleSwapRequest({
-        fromToken: 'ETH',
-        toToken: 'USDC',
-        amount: '1.0',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('No wallet configured');
-    });
-  });
-
   describe('handleSwapRequest - Quote Action', () => {
-    beforeEach(() => {
-      vi.mocked(getSession).mockResolvedValue({
-        authenticated: true,
-        address: '0x1234567890123456789012345678901234567890',
-        walletId: 'test-wallet-id',
-      });
-    });
-
     it('returns quote successfully', async () => {
       vi.mocked(getSwapQuote).mockResolvedValue({
         fromToken: { symbol: 'ETH', decimals: 18, address: '0x0' },
@@ -211,7 +187,7 @@ describe('Swap Tool', () => {
         amount: '1.0',
         chain: 'base',
         action: 'quote',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Swap Quote');
@@ -229,7 +205,7 @@ describe('Swap Tool', () => {
         amount: '1.0',
         chain: 'base',
         action: 'quote',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('No routes found');
@@ -237,14 +213,6 @@ describe('Swap Tool', () => {
   });
 
   describe('handleSwapRequest - Execute Action', () => {
-    beforeEach(() => {
-      vi.mocked(getSession).mockResolvedValue({
-        authenticated: true,
-        address: '0x1234567890123456789012345678901234567890',
-        walletId: 'test-wallet-id',
-      });
-    });
-
     it('executes swap successfully', async () => {
       vi.mocked(getSwapQuote).mockResolvedValue({
         fromToken: { symbol: 'ETH', decimals: 18, address: '0x0' },
@@ -275,7 +243,7 @@ describe('Swap Tool', () => {
         amount: '1.0',
         chain: 'base',
         action: 'execute',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Swap Submitted');
@@ -291,7 +259,7 @@ describe('Swap Tool', () => {
         amount: '100',
         chain: 'base',
         action: 'execute',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Insufficient balance');

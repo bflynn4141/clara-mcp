@@ -2,6 +2,12 @@
  * Tests for wallet management tools
  *
  * Tests wallet_setup, wallet_status, and wallet_logout tools.
+ *
+ * NOTE: Wallet handlers (setup, status, logout) do NOT use ToolContext.
+ * They manage session internally because:
+ * - wallet_setup runs BEFORE any session exists
+ * - wallet_status needs to report unauthenticated state
+ * - wallet_logout destroys the session
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -9,7 +15,9 @@ import {
   setupToolDefinition,
   statusToolDefinition,
   logoutToolDefinition,
-  handleWalletToolRequest,
+  handleSetupRequest,
+  handleStatusRequest,
+  handleLogoutRequest,
 } from '../../tools/wallet.js';
 
 // Mock the para client
@@ -73,127 +81,119 @@ describe('Wallet Tools', () => {
     });
   });
 
-  describe('handleWalletToolRequest', () => {
-    it('returns null for unknown tool names', async () => {
-      const result = await handleWalletToolRequest('unknown_tool', {});
-      expect(result).toBeNull();
+  describe('handleSetupRequest', () => {
+    it('handles successful setup without email', async () => {
+      vi.mocked(setupWallet).mockResolvedValue({
+        address: '0x1234567890123456789012345678901234567890',
+        isNew: true,
+      });
+
+      const result = await handleSetupRequest({});
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Wallet created');
+      expect(result.content[0].text).toContain('0x1234567890123456789012345678901234567890');
     });
 
-    describe('wallet_setup', () => {
-      it('handles successful setup without email', async () => {
-        vi.mocked(setupWallet).mockResolvedValue({
-          address: '0x1234567890123456789012345678901234567890',
-          isNew: true,
-        });
-
-        const result = await handleWalletToolRequest('wallet_setup', {});
-
-        expect(result).not.toBeNull();
-        expect(result?.isError).toBeUndefined();
-        expect(result?.content[0].text).toContain('Wallet created');
-        expect(result?.content[0].text).toContain('0x1234567890123456789012345678901234567890');
+    it('handles successful setup with email', async () => {
+      vi.mocked(setupWallet).mockResolvedValue({
+        address: '0x1234567890123456789012345678901234567890',
+        email: 'test@example.com',
+        isNew: true,
       });
 
-      it('handles successful setup with email', async () => {
-        vi.mocked(setupWallet).mockResolvedValue({
-          address: '0x1234567890123456789012345678901234567890',
-          email: 'test@example.com',
-          isNew: true,
-        });
+      const result = await handleSetupRequest({ email: 'test@example.com' });
 
-        const result = await handleWalletToolRequest('wallet_setup', { email: 'test@example.com' });
-
-        expect(result?.content[0].text).toContain('Portable wallet');
-        expect(result?.content[0].text).toContain('test@example.com');
-      });
-
-      it('handles existing wallet', async () => {
-        vi.mocked(setupWallet).mockResolvedValue({
-          address: '0x1234567890123456789012345678901234567890',
-          isNew: false,
-        });
-
-        const result = await handleWalletToolRequest('wallet_setup', {});
-
-        expect(result?.content[0].text).toContain('Wallet ready');
-      });
-
-      it('handles setup errors', async () => {
-        vi.mocked(setupWallet).mockRejectedValue(new Error('API error'));
-
-        const result = await handleWalletToolRequest('wallet_setup', {});
-
-        expect(result?.isError).toBe(true);
-        expect(result?.content[0].text).toContain('Setup failed');
-        expect(result?.content[0].text).toContain('API error');
-      });
+      expect(result.content[0].text).toContain('Portable wallet');
+      expect(result.content[0].text).toContain('test@example.com');
     });
 
-    describe('wallet_status', () => {
-      it('handles authenticated wallet', async () => {
-        vi.mocked(getWalletStatus).mockResolvedValue({
-          authenticated: true,
-          address: '0x1234567890123456789012345678901234567890',
-          email: 'test@example.com',
-          sessionAge: '2 hours',
-          chains: ['base', 'ethereum'],
-        });
-        // Mock session with createdAt 2 hours ago so formatDuration produces "2h 0m"
-        vi.mocked(getSession).mockResolvedValue({
-          authenticated: true,
-          address: '0x1234567890123456789012345678901234567890',
-          walletId: 'test-wallet-id',
-          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-        });
-
-        const result = await handleWalletToolRequest('wallet_status', {});
-
-        expect(result?.isError).toBeUndefined();
-        expect(result?.content[0].text).toContain('Wallet Active');
-        expect(result?.content[0].text).toContain('0x1234567890123456789012345678901234567890');
-        expect(result?.content[0].text).toContain('test@example.com');
-        expect(result?.content[0].text).toContain('2h');
+    it('handles existing wallet', async () => {
+      vi.mocked(setupWallet).mockResolvedValue({
+        address: '0x1234567890123456789012345678901234567890',
+        isNew: false,
       });
 
-      it('handles unauthenticated state', async () => {
-        vi.mocked(getWalletStatus).mockResolvedValue({
-          authenticated: false,
-        });
+      const result = await handleSetupRequest({});
 
-        const result = await handleWalletToolRequest('wallet_status', {});
-
-        expect(result?.content[0].text).toContain('No wallet configured');
-        expect(result?.content[0].text).toContain('wallet_setup');
-      });
-
-      it('handles status errors', async () => {
-        vi.mocked(getWalletStatus).mockRejectedValue(new Error('Network error'));
-
-        const result = await handleWalletToolRequest('wallet_status', {});
-
-        expect(result?.isError).toBe(true);
-        expect(result?.content[0].text).toContain('Network error');
-      });
+      expect(result.content[0].text).toContain('Wallet ready');
     });
 
-    describe('wallet_logout', () => {
-      it('handles successful logout', async () => {
-        vi.mocked(logout).mockResolvedValue(undefined);
+    it('handles setup errors', async () => {
+      vi.mocked(setupWallet).mockRejectedValue(new Error('API error'));
 
-        const result = await handleWalletToolRequest('wallet_logout', {});
+      const result = await handleSetupRequest({});
 
-        expect(result?.isError).toBeUndefined();
-        expect(result?.content[0].text).toContain('Logged out');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Setup failed');
+      expect(result.content[0].text).toContain('API error');
+    });
+  });
+
+  describe('handleStatusRequest', () => {
+    it('handles authenticated wallet', async () => {
+      vi.mocked(getWalletStatus).mockResolvedValue({
+        authenticated: true,
+        address: '0x1234567890123456789012345678901234567890',
+        email: 'test@example.com',
+        sessionAge: '2 hours',
+        chains: ['base', 'ethereum'],
+      });
+      // Mock session with createdAt 2 hours ago so formatDuration produces "2h 0m"
+      vi.mocked(getSession).mockResolvedValue({
+        authenticated: true,
+        address: '0x1234567890123456789012345678901234567890',
+        walletId: 'test-wallet-id',
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       });
 
-      it('handles logout errors', async () => {
-        vi.mocked(logout).mockRejectedValue(new Error('Session error'));
+      const result = await handleStatusRequest({});
 
-        const result = await handleWalletToolRequest('wallet_logout', {});
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Wallet Active');
+      expect(result.content[0].text).toContain('0x1234567890123456789012345678901234567890');
+      expect(result.content[0].text).toContain('test@example.com');
+      expect(result.content[0].text).toContain('2h');
+    });
 
-        expect(result?.isError).toBe(true);
-        expect(result?.content[0].text).toContain('Session error');
+    it('handles unauthenticated state', async () => {
+      vi.mocked(getWalletStatus).mockResolvedValue({
+        authenticated: false,
       });
+
+      const result = await handleStatusRequest({});
+
+      expect(result.content[0].text).toContain('No wallet configured');
+      expect(result.content[0].text).toContain('wallet_setup');
+    });
+
+    it('handles status errors', async () => {
+      vi.mocked(getWalletStatus).mockRejectedValue(new Error('Network error'));
+
+      const result = await handleStatusRequest({});
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Network error');
+    });
+  });
+
+  describe('handleLogoutRequest', () => {
+    it('handles successful logout', async () => {
+      vi.mocked(logout).mockResolvedValue(undefined);
+
+      const result = await handleLogoutRequest({});
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Logged out');
+    });
+
+    it('handles logout errors', async () => {
+      vi.mocked(logout).mockRejectedValue(new Error('Session error'));
+
+      const result = await handleLogoutRequest({});
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Session error');
     });
   });
 });

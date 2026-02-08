@@ -2,12 +2,17 @@
  * Tests for send tool
  *
  * Tests wallet_send tool with input validation and mocked transactions.
+ *
+ * NOTE: Session validation is handled by middleware (not the handler).
+ * The handler receives a pre-validated ToolContext from middleware.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { sendToolDefinition, handleSendRequest } from '../../tools/send.js';
+import type { ToolContext } from '../../middleware.js';
+import type { Hex } from 'viem';
 
-// Mock session storage
+// Mock session storage (used by middleware, kept for compatibility)
 vi.mock('../../storage/session.js', () => ({
   getSession: vi.fn(),
   touchSession: vi.fn(),
@@ -36,9 +41,45 @@ vi.mock('../../services/risk.js', () => ({
   quickSafeCheck: vi.fn(() => true),
 }));
 
-import { getSession, touchSession } from '../../storage/session.js';
+// Mock gas preflight
+vi.mock('../../gas-preflight.js', () => ({
+  requireGas: vi.fn(),
+  checkGasPreflight: vi.fn(),
+}));
+
+// Mock viem's createPublicClient to prevent real RPC calls during simulation
+// The handler calls client.call() to simulate transactions before signing,
+// and client.getCode() to check if recipient is a contract (isContract).
+vi.mock('viem', async () => {
+  const actual = await vi.importActual('viem');
+  return {
+    ...actual,
+    createPublicClient: vi.fn(() => ({
+      call: vi.fn().mockResolvedValue(undefined),
+      getCode: vi.fn().mockResolvedValue('0x'),
+    })),
+  };
+});
+
 import { signAndSendTransaction } from '../../para/transactions.js';
 import { resolveToken } from '../../config/tokens.js';
+
+// ─── Test Helpers ───────────────────────────────────────────────────
+
+const TEST_ADDRESS = '0xabcdef1234567890abcdef1234567890abcdef12' as Hex;
+
+function makeCtx(address: Hex = TEST_ADDRESS): ToolContext {
+  return {
+    session: {
+      authenticated: true,
+      address,
+      walletId: 'test-wallet-id',
+    } as any,
+    walletAddress: address,
+  };
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────
 
 describe('Send Tool', () => {
   beforeEach(() => {
@@ -69,7 +110,7 @@ describe('Send Tool', () => {
 
   describe('handleSendRequest - Input Validation', () => {
     it('rejects missing recipient address', async () => {
-      const result = await handleSendRequest({ amount: '1.0' });
+      const result = await handleSendRequest({ amount: '1.0' }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Invalid recipient address');
@@ -79,7 +120,7 @@ describe('Send Tool', () => {
       const result = await handleSendRequest({
         to: 'not-an-address',
         amount: '1.0',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Invalid recipient address');
@@ -89,7 +130,7 @@ describe('Send Tool', () => {
       const result = await handleSendRequest({
         to: '0x123', // Too short
         amount: '1.0',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Invalid recipient address');
@@ -98,7 +139,7 @@ describe('Send Tool', () => {
     it('rejects missing amount', async () => {
       const result = await handleSendRequest({
         to: '0x1234567890123456789012345678901234567890',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Invalid amount');
@@ -108,7 +149,7 @@ describe('Send Tool', () => {
       const result = await handleSendRequest({
         to: '0x1234567890123456789012345678901234567890',
         amount: 'abc',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Invalid amount');
@@ -118,7 +159,7 @@ describe('Send Tool', () => {
       const result = await handleSendRequest({
         to: '0x1234567890123456789012345678901234567890',
         amount: '0',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Invalid amount');
@@ -128,7 +169,7 @@ describe('Send Tool', () => {
       const result = await handleSendRequest({
         to: '0x1234567890123456789012345678901234567890',
         amount: '-1',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Invalid amount');
@@ -139,51 +180,14 @@ describe('Send Tool', () => {
         to: '0x1234567890123456789012345678901234567890',
         amount: '1.0',
         chain: 'solana',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Unsupported chain');
     });
   });
 
-  describe('handleSendRequest - Session', () => {
-    it('requires wallet setup', async () => {
-      vi.mocked(getSession).mockResolvedValue(null);
-
-      const result = await handleSendRequest({
-        to: '0x1234567890123456789012345678901234567890',
-        amount: '1.0',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Wallet not configured');
-    });
-
-    it('requires authenticated session', async () => {
-      vi.mocked(getSession).mockResolvedValue({
-        authenticated: false,
-      });
-
-      const result = await handleSendRequest({
-        to: '0x1234567890123456789012345678901234567890',
-        amount: '1.0',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Wallet not configured');
-    });
-  });
-
   describe('handleSendRequest - Native Token Transfer', () => {
-    beforeEach(() => {
-      vi.mocked(getSession).mockResolvedValue({
-        authenticated: true,
-        address: '0xabcdef1234567890abcdef1234567890abcdef12',
-        walletId: 'test-wallet-id',
-      });
-      vi.mocked(touchSession).mockResolvedValue(undefined);
-    });
-
     it('sends native token successfully', async () => {
       vi.mocked(signAndSendTransaction).mockResolvedValue({
         txHash: '0xabc123def456789012345678901234567890123456789012345678901234567890',
@@ -193,7 +197,7 @@ describe('Send Tool', () => {
         to: '0x1234567890123456789012345678901234567890',
         amount: '0.1',
         chain: 'base',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Transaction sent');
@@ -217,7 +221,7 @@ describe('Send Tool', () => {
         to: '0x1234567890123456789012345678901234567890',
         amount: '100',
         chain: 'base',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Send failed');
@@ -226,15 +230,6 @@ describe('Send Tool', () => {
   });
 
   describe('handleSendRequest - ERC20 Token Transfer', () => {
-    beforeEach(() => {
-      vi.mocked(getSession).mockResolvedValue({
-        authenticated: true,
-        address: '0xabcdef1234567890abcdef1234567890abcdef12',
-        walletId: 'test-wallet-id',
-      });
-      vi.mocked(touchSession).mockResolvedValue(undefined);
-    });
-
     it('sends ERC20 token successfully', async () => {
       vi.mocked(resolveToken).mockReturnValue({
         address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
@@ -250,7 +245,7 @@ describe('Send Tool', () => {
         amount: '100',
         chain: 'base',
         token: 'USDC',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Transaction sent');
@@ -274,7 +269,7 @@ describe('Send Tool', () => {
         amount: '100',
         chain: 'base',
         token: 'FAKE',
-      });
+      }, makeCtx());
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Unknown token');
