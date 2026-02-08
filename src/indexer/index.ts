@@ -13,9 +13,15 @@ export {
   getBountiesByPoster,
   getBountiesByClaimer,
   getIndexStats,
+  getAgentByAddress,
+  getAgentByAgentId,
+  findAgents,
+  getFeedbacksByAgentId,
+  getFeedbacksByClient,
+  getReputationSummary,
 } from './queries.js';
-export type { BountyFilter, IndexStats } from './queries.js';
-export type { BountyRecord, BountyIndex, BountyStatus } from './types.js';
+export type { BountyFilter, IndexStats, AgentFilter, ReputationSummary } from './queries.js';
+export type { BountyRecord, BountyIndex, BountyStatus, AgentRecord, FeedbackRecord } from './types.js';
 
 import { syncFromChain, startPolling } from './sync.js';
 

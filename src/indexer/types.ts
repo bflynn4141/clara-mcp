@@ -78,6 +78,47 @@ export interface AgentRecord {
   registeredBlock: number;
   /** Transaction hash of the registration */
   registeredTxHash: string;
+  /** Cached reputation: number of non-revoked feedbacks */
+  reputationCount?: number;
+  /** Cached reputation: sum of rating values */
+  reputationSum?: number;
+  /** Cached reputation: average rating (reputationSum / reputationCount) */
+  reputationAvg?: number;
+  /** Block number of the most recent URIUpdated event */
+  uriUpdatedBlock?: number;
+}
+
+/**
+ * A feedback record from the ReputationRegistry.
+ *
+ * Created from NewFeedback events, marked revoked on FeedbackRevoked.
+ * Keyed by "{agentId}-{feedbackIndex}" in the index.
+ */
+export interface FeedbackRecord {
+  /** ERC-8004 agent token ID that received the feedback */
+  agentId: number;
+  /** Address of the client who gave the feedback (lowercase) */
+  clientAddress: string;
+  /** Sequential index within this agent's feedback history */
+  feedbackIndex: number;
+  /** Rating value (e.g. 5 for 5-star) */
+  value: number;
+  /** Decimal places for the value (e.g. 0 means integer, 1 means /10) */
+  valueDecimals: number;
+  /** Primary category tag (e.g. "bounty") */
+  tag1: string;
+  /** Secondary tag (e.g. "completed") */
+  tag2: string;
+  /** Feedback content URI (IPFS hash or data URI) */
+  feedbackURI: string;
+  /** Hash of the feedback content */
+  feedbackHash: string;
+  /** Block number where NewFeedback was emitted */
+  block: number;
+  /** Transaction hash */
+  txHash: string;
+  /** Whether this feedback was revoked */
+  revoked: boolean;
 }
 
 /**
@@ -90,10 +131,16 @@ export interface BountyIndex {
   factoryAddress: string;
   /** IdentityRegistry address this index was built from */
   identityRegistryAddress: string;
+  /** ReputationRegistry address this index was built from */
+  reputationRegistryAddress?: string;
   /** Chain ID (84532 = Base Sepolia, 8453 = Base) */
   chainId: number;
   /** All bounties keyed by lowercase bountyAddress */
   bounties: Record<string, BountyRecord>;
   /** All agents keyed by lowercase owner address */
   agents: Record<string, AgentRecord>;
+  /** All feedbacks keyed by "{agentId}-{feedbackIndex}" */
+  feedbacks?: Record<string, FeedbackRecord>;
+  /** Secondary index: agents keyed by agentId (string). Same object refs as `agents`. */
+  agentsById?: Record<string, AgentRecord>;
 }

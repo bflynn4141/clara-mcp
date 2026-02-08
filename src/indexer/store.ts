@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import type { BountyIndex } from './types.js';
+import type { BountyIndex, AgentRecord } from './types.js';
 import { getBountyContracts, getClaraContracts } from '../config/clara-contracts.js';
 import { FACTORY_DEPLOY_BLOCK } from '../config/clara-contracts.js';
 
@@ -30,16 +30,31 @@ function ensureDir(): void {
  * sync fetches all historical events.
  */
 function defaultIndex(): BountyIndex {
-  const { bountyFactory, identityRegistry } = getBountyContracts();
+  const { bountyFactory, identityRegistry, reputationRegistry } = getBountyContracts();
   const { chainId } = getClaraContracts();
   return {
     lastBlock: Number(FACTORY_DEPLOY_BLOCK),
     factoryAddress: bountyFactory.toLowerCase(),
     identityRegistryAddress: identityRegistry.toLowerCase(),
+    reputationRegistryAddress: reputationRegistry.toLowerCase(),
     chainId,
     bounties: {},
     agents: {},
+    feedbacks: {},
+    agentsById: {},
   };
+}
+
+/**
+ * Rebuild the agentsById secondary index from the agents map.
+ * Used when loading an older index file that doesn't have agentsById.
+ */
+function rebuildAgentsById(agents: Record<string, AgentRecord>): Record<string, AgentRecord> {
+  const byId: Record<string, AgentRecord> = {};
+  for (const agent of Object.values(agents)) {
+    byId[String(agent.agentId)] = agent;
+  }
+  return byId;
 }
 
 /**
@@ -57,21 +72,31 @@ export function loadIndex(): BountyIndex {
     const data = readFileSync(INDEX_FILE, 'utf-8');
     const index = JSON.parse(data) as BountyIndex;
 
-    // Validate: if factory or identity registry address changed (network switch), reset
+    // Validate: if factory, identity, or reputation registry address changed (network switch), reset
     const contracts = getBountyContracts();
     const expectedFactory = contracts.bountyFactory.toLowerCase();
     const expectedRegistry = contracts.identityRegistry.toLowerCase();
-    if (index.factoryAddress !== expectedFactory || index.identityRegistryAddress !== expectedRegistry) {
+    const expectedReputation = contracts.reputationRegistry.toLowerCase();
+    if (
+      index.factoryAddress !== expectedFactory ||
+      index.identityRegistryAddress !== expectedRegistry ||
+      (index.reputationRegistryAddress && index.reputationRegistryAddress !== expectedReputation)
+    ) {
       return defaultIndex();
     }
+
+    const agents = index.agents ?? {};
 
     return {
       lastBlock: index.lastBlock ?? Number(FACTORY_DEPLOY_BLOCK),
       factoryAddress: index.factoryAddress,
       identityRegistryAddress: index.identityRegistryAddress,
+      reputationRegistryAddress: index.reputationRegistryAddress ?? expectedReputation,
       chainId: index.chainId,
       bounties: index.bounties ?? {},
-      agents: index.agents ?? {},
+      agents,
+      feedbacks: index.feedbacks ?? {},
+      agentsById: index.agentsById ?? rebuildAgentsById(agents),
     };
   } catch {
     console.error('[indexer] Corrupt bounties.json, resetting index');

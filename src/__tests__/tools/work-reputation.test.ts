@@ -1,8 +1,8 @@
 /**
  * Tests for work_reputation tool
  *
- * Tests reputation lookup from on-chain contracts (IdentityRegistry +
- * ReputationRegistry) enriched with local indexer bounty stats.
+ * Tests reputation lookup from the local indexer (AgentRecord +
+ * ReputationSummary) enriched with bounty stats.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -10,27 +10,21 @@ import { workReputationToolDefinition, handleWorkReputation } from '../../tools/
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
-const mockReadContract = vi.fn();
-
-vi.mock('../../config/clara-contracts.js', () => ({
-  getClaraPublicClient: vi.fn(() => ({
-    readContract: mockReadContract,
-  })),
-  getBountyContracts: vi.fn(() => ({
-    identityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-    reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
-    bountyFactory: '0x4fDd9E7014959503B91e4C21c0B25f1955413C75',
-  })),
-  IDENTITY_REGISTRY_ABI: [],
-  REPUTATION_REGISTRY_ABI: [],
-}));
-
 vi.mock('../../indexer/queries.js', () => ({
+  getAgentByAddress: vi.fn(() => null),
+  getAgentByAgentId: vi.fn(() => null),
+  getReputationSummary: vi.fn(() => null),
   getBountiesByPoster: vi.fn(() => []),
   getBountiesByClaimer: vi.fn(() => []),
 }));
 
-import { getBountiesByPoster, getBountiesByClaimer } from '../../indexer/queries.js';
+import {
+  getAgentByAddress,
+  getAgentByAgentId,
+  getReputationSummary,
+  getBountiesByPoster,
+  getBountiesByClaimer,
+} from '../../indexer/queries.js';
 
 // ─── Test Data ──────────────────────────────────────────────────────
 
@@ -46,6 +40,20 @@ const AGENT_URI = makeDataUri({
   skills: ['solidity', 'auditing'],
   description: 'Reputation test agent',
 });
+
+function makeAgentRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    agentId: 42,
+    owner: TEST_OWNER,
+    agentURI: AGENT_URI,
+    name: 'ReputationBot',
+    skills: ['solidity', 'auditing'],
+    description: 'Reputation test agent',
+    registeredBlock: 100,
+    registeredTxHash: '0xreg001',
+    ...overrides,
+  };
+}
 
 function makeBountyRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -66,30 +74,21 @@ function makeBountyRecord(overrides: Record<string, unknown> = {}) {
 // ─── Mock Setup Helpers ─────────────────────────────────────────────
 
 function setupFullAgentMocks(agentId: number = 42, reviewCount: number = 5, totalValue: number = 22) {
-  mockReadContract.mockImplementation(async (params: any) => {
-    const fn = params.functionName;
-    switch (fn) {
-      case 'balanceOf':
-        return 1n;
-      case 'tokenOfOwnerByIndex':
-        return BigInt(agentId);
-      case 'ownerOf':
-        return TEST_OWNER;
-      case 'tokenURI':
-        return AGENT_URI;
-      case 'getSummary':
-        return [BigInt(reviewCount), BigInt(totalValue), 0n];
-      default:
-        throw new Error(`Unexpected readContract call: ${fn}`);
-    }
+  const avgRating = reviewCount > 0 ? totalValue / reviewCount : 0;
+  const agent = makeAgentRecord({ agentId, owner: TEST_OWNER });
+
+  vi.mocked(getAgentByAgentId).mockReturnValue(agent as any);
+  vi.mocked(getAgentByAddress).mockReturnValue(agent as any);
+  vi.mocked(getReputationSummary).mockReturnValue({
+    count: reviewCount,
+    averageRating: avgRating,
+    totalValue,
   });
 }
 
 function setupNoAgentMocks() {
-  mockReadContract.mockImplementation(async (params: any) => {
-    if (params.functionName === 'balanceOf') return 0n;
-    throw new Error('Should not be called');
-  });
+  vi.mocked(getAgentByAddress).mockReturnValue(null);
+  vi.mocked(getAgentByAgentId).mockReturnValue(null);
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -132,7 +131,7 @@ describe('work_reputation', () => {
     });
 
     it('shows rating from on-chain reputation', async () => {
-      // 5 reviews, total 22, 0 decimals → avg 4.4
+      // 5 reviews, total 22 → avg 4.4
       setupFullAgentMocks(42, 5, 22);
 
       const result = await handleWorkReputation({ agentId: 42 });
@@ -189,21 +188,25 @@ describe('work_reputation', () => {
   });
 
   describe('Address Resolution', () => {
-    it('resolves agentId from address via balanceOf + tokenOfOwnerByIndex', async () => {
-      setupFullAgentMocks(77);
+    it('resolves agentId from address via getAgentByAddress', async () => {
+      const agent = makeAgentRecord({ agentId: 77 });
+      vi.mocked(getAgentByAddress).mockReturnValue(agent as any);
+      vi.mocked(getReputationSummary).mockReturnValue({
+        count: 5,
+        averageRating: 4.4,
+        totalValue: 22,
+      });
 
       const result = await handleWorkReputation({ address: TEST_ADDRESS });
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('77');
-      expect(mockReadContract).toHaveBeenCalledWith(
-        expect.objectContaining({ functionName: 'balanceOf' }),
-      );
+      expect(getAgentByAddress).toHaveBeenCalledWith(TEST_ADDRESS);
     });
   });
 
   describe('No On-Chain Reputation', () => {
-    it('shows "no on-chain reputation yet" when getSummary count is 0', async () => {
+    it('shows "no on-chain reputation yet" when reputation count is 0', async () => {
       setupFullAgentMocks(42, 0, 0);
 
       const result = await handleWorkReputation({ agentId: 42 });
@@ -247,37 +250,27 @@ describe('work_reputation', () => {
       expect(result.content[0].text).toContain('0xabcd...ef12');
     });
 
-    it('falls back to "Agent #999" when metadata not found', async () => {
-      // When agentId is provided, readAgentMetadata and readReputation catch
-      // their own errors and return null. The handler still renders reputation
-      // with fallback name "Agent #999".
-      mockReadContract.mockRejectedValue(new Error('not found'));
+    it('returns error when agentId not found in index', async () => {
+      // When agentId 999 is not in the local index, getAgentByAgentId returns null
+      // and the tool returns an error
+      vi.mocked(getAgentByAgentId).mockReturnValue(null);
 
       const result = await handleWorkReputation({ agentId: 999 });
 
-      expect(result.isError).toBeUndefined();
-      const text = result.content[0].text;
-      expect(text).toContain('Agent #999');
-      expect(text).toContain('No on-chain reputation');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Agent not found');
     });
   });
 
   describe('Reputation Calculation', () => {
     it('calculates average with decimals', async () => {
-      // 2 reviews, total 9, 1 decimal → 9/10/2 = 0.45... wait, let me re-check
-      // getSummary returns [count, summaryValue, summaryValueDecimals]
-      // avg = summaryValue / (10^decimals) / count
-      // = 90 / (10^1) / 2 = 90/10/2 = 4.5
-      mockReadContract.mockImplementation(async (params: any) => {
-        const fn = params.functionName;
-        switch (fn) {
-          case 'balanceOf': return 1n;
-          case 'tokenOfOwnerByIndex': return 5n;
-          case 'ownerOf': return TEST_OWNER;
-          case 'tokenURI': return AGENT_URI;
-          case 'getSummary': return [2n, 90n, 1n]; // 90 / 10^1 / 2 = 4.5
-          default: throw new Error(`Unexpected: ${fn}`);
-        }
+      // The indexer pre-computes the average: 4.5
+      const agent = makeAgentRecord({ agentId: 5 });
+      vi.mocked(getAgentByAgentId).mockReturnValue(agent as any);
+      vi.mocked(getReputationSummary).mockReturnValue({
+        count: 2,
+        averageRating: 4.5,
+        totalValue: 9,
       });
 
       const result = await handleWorkReputation({ agentId: 5 });
@@ -285,36 +278,25 @@ describe('work_reputation', () => {
     });
 
     it('handles zero reviews gracefully (no divide by zero)', async () => {
-      mockReadContract.mockImplementation(async (params: any) => {
-        const fn = params.functionName;
-        switch (fn) {
-          case 'ownerOf': return TEST_OWNER;
-          case 'tokenURI': return AGENT_URI;
-          case 'getSummary': return [0n, 0n, 0n];
-          default: throw new Error(`Unexpected: ${fn}`);
-        }
+      const agent = makeAgentRecord({ agentId: 1 });
+      vi.mocked(getAgentByAgentId).mockReturnValue(agent as any);
+      vi.mocked(getReputationSummary).mockReturnValue({
+        count: 0,
+        averageRating: 0,
+        totalValue: 0,
       });
 
       const result = await handleWorkReputation({ agentId: 1 });
       expect(result.isError).toBeUndefined();
-      // avg = 0 (count > 0 check prevents divide-by-zero)
     });
 
-    it('handles readReputation returning null (contract call fails)', async () => {
-      mockReadContract.mockImplementation(async (params: any) => {
-        const fn = params.functionName;
-        switch (fn) {
-          case 'ownerOf': return TEST_OWNER;
-          case 'tokenURI': return AGENT_URI;
-          case 'getSummary': throw new Error('contract reverted');
-          default: throw new Error(`Unexpected: ${fn}`);
-        }
-      });
+    it('handles getReputationSummary returning null (agent not indexed)', async () => {
+      // When agentId is not found in the index, the tool returns an error
+      vi.mocked(getAgentByAgentId).mockReturnValue(null);
 
       const result = await handleWorkReputation({ agentId: 1 });
-      // readReputation catches and returns null, so profile still renders
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('No on-chain reputation');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Agent not found');
     });
   });
 

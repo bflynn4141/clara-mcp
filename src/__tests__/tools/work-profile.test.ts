@@ -1,40 +1,31 @@
 /**
  * Tests for work_profile tool
  *
- * Tests agent profile lookup via on-chain reads (IdentityRegistry +
- * ReputationRegistry) and local indexer bounty enrichment.
- * All viem readContract calls and indexer queries are mocked.
+ * Tests agent profile lookup via local indexer queries (getAgentByAddress,
+ * getAgentByAgentId, getReputationSummary) and bounty enrichment.
+ * All indexer query functions are mocked.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Hex } from 'viem';
 import { workProfileToolDefinition, handleWorkProfile } from '../../tools/work-profile.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
-// Mock the clara-contracts module (getClaraPublicClient + getBountyContracts)
-const mockReadContract = vi.fn();
-
-vi.mock('../../config/clara-contracts.js', () => ({
-  getClaraPublicClient: vi.fn(() => ({
-    readContract: mockReadContract,
-  })),
-  getBountyContracts: vi.fn(() => ({
-    identityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-    reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
-    bountyFactory: '0x4fDd9E7014959503B91e4C21c0B25f1955413C75',
-  })),
-  IDENTITY_REGISTRY_ABI: [],
-  REPUTATION_REGISTRY_ABI: [],
-}));
-
-// Mock indexer queries
 vi.mock('../../indexer/queries.js', () => ({
+  getAgentByAddress: vi.fn(() => null),
+  getAgentByAgentId: vi.fn(() => null),
+  getReputationSummary: vi.fn(() => null),
   getBountiesByPoster: vi.fn(() => []),
   getBountiesByClaimer: vi.fn(() => []),
 }));
 
-import { getBountiesByPoster, getBountiesByClaimer } from '../../indexer/queries.js';
+import {
+  getAgentByAddress,
+  getAgentByAgentId,
+  getReputationSummary,
+  getBountiesByPoster,
+  getBountiesByClaimer,
+} from '../../indexer/queries.js';
 
 // ─── Test Data ──────────────────────────────────────────────────────
 
@@ -76,36 +67,35 @@ function makeBountyRecord(overrides: Record<string, unknown> = {}) {
 // ─── Mock Helpers ───────────────────────────────────────────────────
 
 /**
- * Set up readContract to return the expected values for a full agent profile.
- * readContract is called multiple times with different functionNames.
+ * Set up indexer query mocks to return a full agent record.
+ * getAgentByAgentId and getAgentByAddress both return the same record.
+ * getReputationSummary returns 3 reviews with avg 4.33.
  */
 function setupAgentMocks(agentId: number = 42) {
-  mockReadContract.mockImplementation(async (params: any) => {
-    const fn = params.functionName;
-    switch (fn) {
-      case 'balanceOf':
-        return 1n;
-      case 'tokenOfOwnerByIndex':
-        return BigInt(agentId);
-      case 'ownerOf':
-        return TEST_OWNER;
-      case 'tokenURI':
-        return AGENT_URI;
-      case 'getSummary':
-        // Returns [count, summaryValue, summaryValueDecimals]
-        return [3n, 13n, 0n]; // 3 reviews, total 13, 0 decimals → avg 4.33
-      default:
-        throw new Error(`Unexpected readContract call: ${fn}`);
-    }
+  const agentRecord = {
+    agentId,
+    owner: TEST_OWNER.toLowerCase(),
+    agentURI: AGENT_URI,
+    name: 'TestBot',
+    skills: ['solidity', 'typescript'],
+    description: 'A test agent for unit tests',
+    registeredBlock: 100,
+    registeredTxHash: '0xreg001',
+  };
+  vi.mocked(getAgentByAgentId).mockReturnValue(agentRecord);
+  vi.mocked(getAgentByAddress).mockReturnValue(agentRecord);
+  // Default: 3 reviews, avg 4.33
+  vi.mocked(getReputationSummary).mockReturnValue({
+    count: 3,
+    averageRating: 13 / 3, // ~4.333
+    totalValue: 13,
   });
 }
 
 /** Set up mocks for an address with no registered agent */
 function setupNoAgentMocks() {
-  mockReadContract.mockImplementation(async (params: any) => {
-    if (params.functionName === 'balanceOf') return 0n;
-    throw new Error('Should not be called');
-  });
+  vi.mocked(getAgentByAgentId).mockReturnValue(null);
+  vi.mocked(getAgentByAddress).mockReturnValue(null);
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -136,7 +126,7 @@ describe('work_profile', () => {
   });
 
   describe('Lookup by agentId', () => {
-    it('reads tokenURI + ownerOf + getSummary for a given agentId', async () => {
+    it('reads agent data and reputation for a given agentId', async () => {
       setupAgentMocks(42);
 
       const result = await handleWorkProfile({ agentId: 42 });
@@ -183,7 +173,7 @@ describe('work_profile', () => {
   });
 
   describe('Lookup by address', () => {
-    it('resolves agentId via balanceOf + tokenOfOwnerByIndex', async () => {
+    it('resolves agent record via getAgentByAddress', async () => {
       setupAgentMocks(99);
 
       const result = await handleWorkProfile({ address: TEST_ADDRESS });
@@ -192,13 +182,8 @@ describe('work_profile', () => {
       expect(result.content[0].text).toContain('Agent #99');
       expect(result.content[0].text).toContain('TestBot');
 
-      // Verify readContract was called with balanceOf first
-      expect(mockReadContract).toHaveBeenCalledWith(
-        expect.objectContaining({ functionName: 'balanceOf' }),
-      );
-      expect(mockReadContract).toHaveBeenCalledWith(
-        expect.objectContaining({ functionName: 'tokenOfOwnerByIndex' }),
-      );
+      // Verify getAgentByAddress was called with the provided address
+      expect(getAgentByAddress).toHaveBeenCalledWith(TEST_ADDRESS);
     });
   });
 
@@ -284,16 +269,13 @@ describe('work_profile', () => {
     });
 
     it('shows "No on-chain reviews yet" when reputation count is 0', async () => {
-      mockReadContract.mockImplementation(async (params: any) => {
-        const fn = params.functionName;
-        switch (fn) {
-          case 'balanceOf': return 1n;
-          case 'tokenOfOwnerByIndex': return 10n;
-          case 'ownerOf': return TEST_OWNER;
-          case 'tokenURI': return AGENT_URI;
-          case 'getSummary': return [0n, 0n, 0n]; // 0 reviews
-          default: throw new Error(`Unexpected: ${fn}`);
-        }
+      setupAgentMocks(10);
+
+      // Override reputation to have 0 reviews
+      vi.mocked(getReputationSummary).mockReturnValue({
+        count: 0,
+        averageRating: 0,
+        totalValue: 0,
       });
 
       const result = await handleWorkProfile({ agentId: 10 });
@@ -343,30 +325,24 @@ describe('work_profile', () => {
   });
 
   describe('Error Handling', () => {
-    it('renders profile with fallback name when readAgentMetadata fails', async () => {
-      // When agentId is provided, readAgentMetadata and readReputation catch
-      // errors internally and return null. The handler still renders a profile
-      // with fallback name "Agent #42" and no reputation.
-      mockReadContract.mockRejectedValue(new Error('RPC timeout'));
+    it('returns error when agentId lookup finds no agent', async () => {
+      // getAgentByAgentId returns null → agent not found error
+      vi.mocked(getAgentByAgentId).mockReturnValue(null);
 
       const result = await handleWorkProfile({ agentId: 42 });
 
-      expect(result.isError).toBeUndefined();
-      const text = result.content[0].text;
-      expect(text).toContain('Agent #42');
-      expect(text).toContain('No on-chain reviews yet');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Agent not found');
     });
 
-    it('falls back to "Agent #999" when metadata not found', async () => {
-      // readAgentMetadata catches and returns null → fallback name
-      // readReputation catches and returns null → "No on-chain reviews"
-      mockReadContract.mockRejectedValue(new Error('token does not exist'));
+    it('returns error when agentId 999 not found', async () => {
+      // getAgentByAgentId returns null → agent not found error
+      vi.mocked(getAgentByAgentId).mockReturnValue(null);
 
       const result = await handleWorkProfile({ agentId: 999 });
 
-      expect(result.isError).toBeUndefined();
-      const text = result.content[0].text;
-      expect(text).toContain('Agent #999');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Agent not found');
     });
   });
 });

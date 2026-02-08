@@ -1,22 +1,20 @@
 /**
  * work_reputation - View Agent Reputation
  *
- * Public tool that reads agent reputation directly from on-chain contracts
- * (IdentityRegistry + ReputationRegistry) and enriches with local bounty data.
+ * Reads agent reputation from the local index (sub-millisecond)
+ * and enriches with bounty stats. No RPC calls needed.
  */
 
-import type { Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../middleware.js';
 import { formatAddress } from './work-helpers.js';
 import {
-  getClaraPublicClient,
-  getBountyContracts,
-  IDENTITY_REGISTRY_ABI,
-  REPUTATION_REGISTRY_ABI,
-} from '../config/clara-contracts.js';
-import { parseTaskURI } from './work-helpers.js';
-import { getBountiesByPoster, getBountiesByClaimer } from '../indexer/queries.js';
+  getAgentByAddress,
+  getAgentByAgentId,
+  getReputationSummary,
+  getBountiesByPoster,
+  getBountiesByClaimer,
+} from '../indexer/queries.js';
 
 export const workReputationToolDefinition: Tool = {
   name: 'work_reputation',
@@ -43,108 +41,6 @@ Look up by wallet address or agent ID.
   },
 };
 
-/**
- * Resolve an address to an agentId using tokenOfOwnerByIndex.
- * Returns null if the address has no registered agent.
- */
-async function resolveAgentId(address: string): Promise<number | null> {
-  const client = getClaraPublicClient();
-  const { identityRegistry } = getBountyContracts();
-
-  try {
-    const balance = await client.readContract({
-      address: identityRegistry as Hex,
-      abi: IDENTITY_REGISTRY_ABI,
-      functionName: 'balanceOf',
-      args: [address as Hex],
-    });
-
-    if (balance === 0n) return null;
-
-    // Get the first token (most agents have exactly one)
-    const tokenId = await client.readContract({
-      address: identityRegistry as Hex,
-      abi: IDENTITY_REGISTRY_ABI,
-      functionName: 'tokenOfOwnerByIndex',
-      args: [address as Hex, 0n],
-    });
-
-    return Number(tokenId);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read agent metadata from on-chain tokenURI.
- */
-async function readAgentMetadata(agentId: number): Promise<{
-  name: string;
-  address: string;
-  skills: string[];
-  description?: string;
-} | null> {
-  const client = getClaraPublicClient();
-  const { identityRegistry } = getBountyContracts();
-
-  try {
-    const [owner, tokenURI] = await Promise.all([
-      client.readContract({
-        address: identityRegistry as Hex,
-        abi: IDENTITY_REGISTRY_ABI,
-        functionName: 'ownerOf',
-        args: [BigInt(agentId)],
-      }),
-      client.readContract({
-        address: identityRegistry as Hex,
-        abi: IDENTITY_REGISTRY_ABI,
-        functionName: 'tokenURI',
-        args: [BigInt(agentId)],
-      }),
-    ]);
-
-    const metadata = parseTaskURI(tokenURI);
-    return {
-      name: (metadata?.name as string) || `Agent #${agentId}`,
-      address: owner as string,
-      skills: (metadata?.skills as string[]) || [],
-      description: metadata?.description as string | undefined,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read reputation summary from on-chain ReputationRegistry.
- */
-async function readReputation(agentId: number): Promise<{
-  count: number;
-  averageRating: number;
-} | null> {
-  const client = getClaraPublicClient();
-  const { reputationRegistry } = getBountyContracts();
-
-  try {
-    const [count, summaryValue, summaryValueDecimals] = await client.readContract({
-      address: reputationRegistry as Hex,
-      abi: REPUTATION_REGISTRY_ABI,
-      functionName: 'getSummary',
-      args: [BigInt(agentId), [], 'bounty', 'completed'],
-    });
-
-    const divisor = 10 ** Number(summaryValueDecimals);
-    const avg = Number(count) > 0 ? Number(summaryValue) / divisor / Number(count) : 0;
-
-    return {
-      count: Number(count),
-      averageRating: avg,
-    };
-  } catch {
-    return null;
-  }
-}
-
 export async function handleWorkReputation(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
@@ -162,13 +58,14 @@ export async function handleWorkReputation(
   }
 
   try {
-    // Resolve agentId from address if needed
-    let resolvedAgentId = agentId ?? null;
-    if (resolvedAgentId === null && address) {
-      resolvedAgentId = await resolveAgentId(address);
-    }
+    // Resolve agent from the local index
+    const agent = agentId !== undefined
+      ? getAgentByAgentId(agentId)
+      : address
+        ? getAgentByAddress(address)
+        : null;
 
-    if (resolvedAgentId === null) {
+    if (!agent) {
       return {
         content: [{
           type: 'text',
@@ -178,15 +75,11 @@ export async function handleWorkReputation(
       };
     }
 
-    // Read agent metadata + reputation from chain
-    const [agent, reputation] = await Promise.all([
-      readAgentMetadata(resolvedAgentId),
-      readReputation(resolvedAgentId),
-    ]);
+    const resolvedAgentId = agent.agentId;
+    const agentAddr = agent.owner;
 
-    const agentName = agent?.name || `Agent #${resolvedAgentId}`;
-    const agentAddr = agent?.address || address || 'unknown';
-    const skills = agent?.skills || [];
+    // Read cached reputation from index
+    const reputation = getReputationSummary(resolvedAgentId);
 
     // Enrich with bounty stats from local indexer
     const posted = getBountiesByPoster(agentAddr);
@@ -194,14 +87,14 @@ export async function handleWorkReputation(
     const completed = claimed.filter((b) => b.status === 'approved');
 
     const lines = [
-      `**Agent Reputation: ${agentName}**`,
+      `**Agent Reputation: ${agent.name}**`,
       '',
       `**Address:** \`${formatAddress(agentAddr)}\``,
       `**Agent ID:** ${resolvedAgentId}`,
-      `**Skills:** ${skills.length > 0 ? skills.join(', ') : 'none listed'}`,
+      `**Skills:** ${agent.skills.length > 0 ? agent.skills.join(', ') : 'none listed'}`,
     ];
 
-    // On-chain reputation
+    // On-chain reputation (from cached index)
     if (reputation && reputation.count > 0) {
       lines.push('');
       lines.push(`**Rating:** ${reputation.averageRating.toFixed(1)}/5 (${reputation.count} review${reputation.count !== 1 ? 's' : ''})`);

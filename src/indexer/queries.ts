@@ -6,7 +6,7 @@
  * Returns empty results if the indexer hasn't synced yet.
  */
 
-import type { AgentRecord, BountyRecord, BountyStatus } from './types.js';
+import type { AgentRecord, BountyRecord, BountyStatus, FeedbackRecord } from './types.js';
 import { getIndex } from './sync.js';
 
 export interface BountyFilter {
@@ -154,8 +154,16 @@ export function getAgentByAddress(address: string): AgentRecord | null {
 
 /**
  * Look up an agent by their ERC-8004 agentId.
+ * Uses the agentsById secondary index for O(1) lookup.
  */
 export function getAgentByAgentId(agentId: number): AgentRecord | null {
+  const index = getIndex();
+  if (!index) return null;
+  // Prefer O(1) lookup via secondary index
+  if (index.agentsById) {
+    return index.agentsById[String(agentId)] ?? null;
+  }
+  // Fallback to linear scan for older index format
   return allAgents().find((a) => a.agentId === agentId) ?? null;
 }
 
@@ -183,4 +191,56 @@ export function findAgents(filters?: AgentFilter): AgentRecord[] {
   results.sort((a, b) => a.agentId - b.agentId);
 
   return results.slice(0, limit);
+}
+
+// ─── Reputation Queries ─────────────────────────────────────────────
+
+/**
+ * Get all feedbacks for a given agentId.
+ * Optionally include revoked feedbacks (excluded by default).
+ */
+export function getFeedbacksByAgentId(
+  agentId: number,
+  includeRevoked = false,
+): FeedbackRecord[] {
+  const index = getIndex();
+  if (!index?.feedbacks) return [];
+
+  return Object.values(index.feedbacks).filter(
+    (fb) => fb.agentId === agentId && (includeRevoked || !fb.revoked),
+  );
+}
+
+/**
+ * Get all feedbacks submitted by a given client address.
+ */
+export function getFeedbacksByClient(clientAddress: string): FeedbackRecord[] {
+  const index = getIndex();
+  if (!index?.feedbacks) return [];
+
+  const addr = clientAddress.toLowerCase();
+  return Object.values(index.feedbacks).filter(
+    (fb) => fb.clientAddress === addr && !fb.revoked,
+  );
+}
+
+export interface ReputationSummary {
+  count: number;
+  averageRating: number;
+  totalValue: number;
+}
+
+/**
+ * Get a reputation summary for an agent from the cached fields.
+ * Returns null if the agent is not found in the index.
+ */
+export function getReputationSummary(agentId: number): ReputationSummary | null {
+  const agent = getAgentByAgentId(agentId);
+  if (!agent) return null;
+
+  return {
+    count: agent.reputationCount ?? 0,
+    averageRating: agent.reputationAvg ?? 0,
+    totalValue: agent.reputationSum ?? 0,
+  };
 }

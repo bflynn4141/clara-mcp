@@ -107,6 +107,44 @@ vi.mock('../../config/clara-contracts.js', () => {
         { name: 'agentURI', type: 'string', indexed: false },
       ],
     },
+    {
+      type: 'event' as const,
+      name: 'URIUpdated',
+      inputs: [
+        { name: 'agentId', type: 'uint256', indexed: true },
+        { name: 'newURI', type: 'string', indexed: false },
+        { name: 'updatedBy', type: 'address', indexed: true },
+      ],
+    },
+  ] as const;
+
+  const REPUTATION_REGISTRY_EVENTS = [
+    {
+      type: 'event' as const,
+      name: 'NewFeedback',
+      inputs: [
+        { name: 'agentId', type: 'uint256', indexed: true },
+        { name: 'clientAddress', type: 'address', indexed: true },
+        { name: 'feedbackIndex', type: 'uint64', indexed: false },
+        { name: 'value', type: 'int128', indexed: false },
+        { name: 'valueDecimals', type: 'uint8', indexed: false },
+        { name: 'indexedTag1', type: 'bytes32', indexed: true },
+        { name: 'tag1', type: 'string', indexed: false },
+        { name: 'tag2', type: 'string', indexed: false },
+        { name: 'endpoint', type: 'string', indexed: false },
+        { name: 'feedbackURI', type: 'string', indexed: false },
+        { name: 'feedbackHash', type: 'bytes32', indexed: false },
+      ],
+    },
+    {
+      type: 'event' as const,
+      name: 'FeedbackRevoked',
+      inputs: [
+        { name: 'agentId', type: 'uint256', indexed: true },
+        { name: 'clientAddress', type: 'address', indexed: true },
+        { name: 'feedbackIndex', type: 'uint64', indexed: true },
+      ],
+    },
   ] as const;
 
   return {
@@ -122,6 +160,7 @@ vi.mock('../../config/clara-contracts.js', () => {
     BOUNTY_FACTORY_EVENTS,
     BOUNTY_EVENTS,
     IDENTITY_REGISTRY_EVENTS,
+    REPUTATION_REGISTRY_EVENTS,
     FACTORY_DEPLOY_BLOCK: 100n,
   };
 });
@@ -158,9 +197,12 @@ function makeDefaultIndex(overrides: Partial<BountyIndex> = {}): BountyIndex {
     lastBlock: 100,
     factoryAddress: '0xfactory',
     identityRegistryAddress: '0xidentity',
+    reputationRegistryAddress: '0xreputation',
     chainId: 84532,
     bounties: {},
     agents: {},
+    feedbacks: {},
+    agentsById: {},
     ...overrides,
   };
 }
@@ -665,17 +707,17 @@ describe('sync', () => {
 
       await syncModule.syncFromChain();
 
-      // With no bounties: 2 getLogs per chunk (factory + identity registry)
+      // With no bounties: 3 getLogs per chunk (factory + identity + reputation)
       // Chunk 1: 101 → 10100
       // Chunk 2: 10101 → 20100
       // Chunk 3: 20101 → 25100
       const calls = mockGetLogs.mock.calls;
-      expect(calls.length).toBe(6); // 3 chunks × 2 (factory + identity)
+      expect(calls.length).toBe(9); // 3 chunks × 3 (factory + identity + reputation)
 
-      // Factory calls at indices 0, 2, 4
+      // Factory calls at indices 0, 3, 6
       expect(calls[0][0]).toMatchObject({ fromBlock: 101n, toBlock: 10100n });
-      expect(calls[2][0]).toMatchObject({ fromBlock: 10101n, toBlock: 20100n });
-      expect(calls[4][0]).toMatchObject({ fromBlock: 20101n, toBlock: 25100n });
+      expect(calls[3][0]).toMatchObject({ fromBlock: 10101n, toBlock: 20100n });
+      expect(calls[6][0]).toMatchObject({ fromBlock: 20101n, toBlock: 25100n });
     });
 
     it('checkpoints lastBlock after each chunk', async () => {
@@ -729,14 +771,14 @@ describe('sync', () => {
     });
 
     it('only fetches lifecycle logs when bounties exist', async () => {
-      // Empty bounties → factory + identity getLogs, no lifecycle getLogs
+      // Empty bounties → factory + identity + reputation getLogs, no lifecycle getLogs
       mockGetBlockNumber.mockResolvedValue(200n);
 
       await syncModule.syncFromChain();
 
-      // 2 getLogs calls: factory events + identity registry events (no lifecycle since no bounties)
-      expect(mockGetLogs).toHaveBeenCalledTimes(2);
-      // Verify factory and identity registry calls
+      // 3 getLogs calls: factory events + identity registry + reputation registry (no lifecycle since no bounties)
+      expect(mockGetLogs).toHaveBeenCalledTimes(3);
+      // Verify factory, identity registry, and reputation registry calls
       expect(mockGetLogs).toHaveBeenCalledWith(
         expect.objectContaining({
           address: '0xFactory',
@@ -745,6 +787,11 @@ describe('sync', () => {
       expect(mockGetLogs).toHaveBeenCalledWith(
         expect.objectContaining({
           address: '0xIdentity',
+        }),
+      );
+      expect(mockGetLogs).toHaveBeenCalledWith(
+        expect.objectContaining({
+          address: '0xReputation',
         }),
       );
     });

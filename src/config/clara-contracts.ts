@@ -395,6 +395,51 @@ export const IDENTITY_REGISTRY_EVENTS = [
       { name: 'agentURI', type: 'string', indexed: false },
     ],
   },
+  {
+    type: 'event' as const,
+    name: 'URIUpdated',
+    inputs: [
+      { name: 'agentId', type: 'uint256', indexed: true },
+      { name: 'newURI', type: 'string', indexed: false },
+      { name: 'updatedBy', type: 'address', indexed: true },
+    ],
+  },
+] as const;
+
+/**
+ * ReputationRegistry events — emitted on feedback submission/revocation.
+ * Used by the embedded indexer to track agent reputation scores.
+ *
+ * Note: `indexedTag1` is a keccak256 topic (Solidity `string indexed`),
+ * not the original string. Use the non-indexed `tag1` param for the actual value.
+ */
+export const REPUTATION_REGISTRY_EVENTS = [
+  {
+    type: 'event' as const,
+    name: 'NewFeedback',
+    inputs: [
+      { name: 'agentId', type: 'uint256', indexed: true },
+      { name: 'clientAddress', type: 'address', indexed: true },
+      { name: 'feedbackIndex', type: 'uint64', indexed: false },
+      { name: 'value', type: 'int128', indexed: false },
+      { name: 'valueDecimals', type: 'uint8', indexed: false },
+      { name: 'indexedTag1', type: 'bytes32', indexed: true },
+      { name: 'tag1', type: 'string', indexed: false },
+      { name: 'tag2', type: 'string', indexed: false },
+      { name: 'endpoint', type: 'string', indexed: false },
+      { name: 'feedbackURI', type: 'string', indexed: false },
+      { name: 'feedbackHash', type: 'bytes32', indexed: false },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'FeedbackRevoked',
+    inputs: [
+      { name: 'agentId', type: 'uint256', indexed: true },
+      { name: 'clientAddress', type: 'address', indexed: true },
+      { name: 'feedbackIndex', type: 'uint64', indexed: true },
+    ],
+  },
 ] as const;
 
 /**
