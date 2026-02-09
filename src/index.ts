@@ -103,6 +103,10 @@ import {
   handleClaimAirdropRequest,
 } from './tools/claim-airdrop.js';
 
+// ENS Tools
+import { ensCheckToolDefinition, handleEnsCheckRequest } from './tools/ens-check.js';
+import { ensRegisterToolDefinition, handleEnsRegisterRequest } from './tools/ens-register.js';
+
 // Work/Bounty Tools (ERC-8004)
 import { workRegisterToolDefinition, handleWorkRegister } from './tools/work-register.js';
 import { workPostToolDefinition, handleWorkPost } from './tools/work-post.js';
@@ -249,6 +253,28 @@ registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
 registerTool(claimAirdropToolDefinition, handleClaimAirdropRequest, {
   gasPreflight: 'check',
   gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
+});
+
+// ─── ENS Tools ───────────────────────────────────────────────────────
+
+// ENS name lookup (public — no auth needed)
+registerTool(ensCheckToolDefinition, handleEnsCheckRequest, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// ENS name registration (auth required, on Ethereum mainnet)
+registerTool(ensRegisterToolDefinition, handleEnsRegisterRequest, {
+  gasPreflight: 'check',
+  gasExtractor: (args) => {
+    const action = (args.action as string) || 'commit';
+    // commit tx is cheap (just stores a hash), register tx sends ETH
+    if (action === 'commit') {
+      return { chain: 'ethereum' as SupportedChain, gasLimit: 100_000n };
+    }
+    // register tx: ~300k gas + the ETH value for the name price
+    return { chain: 'ethereum' as SupportedChain, gasLimit: 300_000n };
+  },
 });
 
 // ─── Work/Bounty Tools (ERC-8004) ────────────────────────────────────
