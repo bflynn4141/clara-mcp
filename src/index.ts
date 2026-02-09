@@ -111,6 +111,9 @@ import {
   lookupNameToolDefinition, handleLookupNameRequest,
 } from './tools/ens-name.js';
 
+// Onboarding
+import { sponsorGasToolDefinition, handleSponsorGas } from './tools/sponsor-gas.js';
+
 // Work/Bounty Tools (ERC-8004)
 import { workRegisterToolDefinition, handleWorkRegister } from './tools/work-register.js';
 import { workPostToolDefinition, handleWorkPost } from './tools/work-post.js';
@@ -291,6 +294,14 @@ registerTool(registerNameToolDefinition, handleRegisterNameRequest, {
 registerTool(lookupNameToolDefinition, handleLookupNameRequest, {
   requiresAuth: false,
   touchesSession: false,
+});
+
+// ─── Onboarding ──────────────────────────────────────────────────────
+
+// Gas sponsorship for new users (auth required, calls proxy)
+registerTool(sponsorGasToolDefinition, handleSponsorGas, {
+  requiresAuth: true,
+  touchesSession: true,
 });
 
 // ─── Work/Bounty Tools (ERC-8004) ────────────────────────────────────
