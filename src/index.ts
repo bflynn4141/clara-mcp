@@ -106,6 +106,10 @@ import {
 // ENS Tools
 import { ensCheckToolDefinition, handleEnsCheckRequest } from './tools/ens-check.js';
 import { ensRegisterToolDefinition, handleEnsRegisterRequest } from './tools/ens-register.js';
+import {
+  registerNameToolDefinition, handleRegisterNameRequest,
+  lookupNameToolDefinition, handleLookupNameRequest,
+} from './tools/ens-name.js';
 
 // Work/Bounty Tools (ERC-8004)
 import { workRegisterToolDefinition, handleWorkRegister } from './tools/work-register.js';
@@ -275,6 +279,18 @@ registerTool(ensRegisterToolDefinition, handleEnsRegisterRequest, {
     // register tx: ~300k gas + the ETH value for the name price
     return { chain: 'ethereum' as SupportedChain, gasLimit: 300_000n };
   },
+});
+
+// Claim a free subname (auth required, no gas — offchain via CCIP-Read)
+registerTool(registerNameToolDefinition, handleRegisterNameRequest, {
+  requiresAuth: true,
+  touchesSession: true,
+});
+
+// Look up a subname or reverse-resolve (public — no auth)
+registerTool(lookupNameToolDefinition, handleLookupNameRequest, {
+  requiresAuth: false,
+  touchesSession: false,
 });
 
 // ─── Work/Bounty Tools (ERC-8004) ────────────────────────────────────

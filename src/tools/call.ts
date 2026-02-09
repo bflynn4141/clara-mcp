@@ -26,6 +26,7 @@ import { base, mainnet, arbitrum, optimism, polygon } from 'viem/chains';
 import { getProviderRegistry, isHerdEnabled } from '../providers/index.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { getRpcUrl, type SupportedChain, getChainId } from '../config/chains.js';
+import { resolveAddress, formatResolved } from '../services/resolve-address.js';
 import {
   storePreparedTx,
   formatPreparedTx,
@@ -68,7 +69,7 @@ Returns a **preparedTxId** that can be executed with wallet_executePrepared.
 \`\`\`json
 {"contract": "0x...", "function": "claim", "chain": "base"}
 {"contract": "0x...", "function": "withdraw(uint256)", "args": ["1000000"], "chain": "base"}
-{"contract": "0x...", "function": "harvest", "args": ["0xMyAddress"], "chain": "base"}
+{"contract": "vitalik.eth", "function": "balanceOf", "args": ["0x..."], "chain": "ethereum"}
 \`\`\`
 
 **Function name formats:**
@@ -81,7 +82,7 @@ After simulation succeeds, use \`wallet_executePrepared\` with the returned prep
     properties: {
       contract: {
         type: 'string',
-        description: 'Contract address (0x...)',
+        description: 'Contract address (0x...), Clara name (e.g., "brian" for brian.claraid.eth), or ENS name (e.g., "vitalik.eth")',
       },
       function: {
         type: 'string',
@@ -245,25 +246,35 @@ export async function handleCallRequest(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<ToolResult> {
-  const contract = args.contract as string;
+  const contractInput = args.contract as string;
   const funcName = args.function as string;
   const funcArgs = (args.args as unknown[]) || [];
   const value = args.value ? BigInt(args.value as string) : 0n;
   const chain = (args.chain as SupportedChain) || 'base';
   const abiOverride = args.abi as Abi | undefined;
 
+  // Resolve contract: 0x address, Clara name, or ENS name
+  let contract: string;
+  let resolvedDisplay: string | undefined;
   try {
-    // Validate contract address
-    if (!contract || !contract.match(/^0x[a-fA-F0-9]{40}$/)) {
-      return {
-        content: [{ type: 'text', text: '❌ Invalid contract address' }],
-        isError: true,
-      };
-    }
+    const resolved = await resolveAddress(contractInput);
+    contract = resolved.address;
+    resolvedDisplay = resolved.displayName;
+  } catch (error) {
+    return {
+      content: [{
+        type: 'text',
+        text: `❌ Cannot resolve contract "${contractInput}": ${error instanceof Error ? error.message : 'Unknown error'}`,
+      }],
+      isError: true,
+    };
+  }
+
+  try {
 
     // Get ABI (from override, or from Herd)
     let abi: Abi;
-    let contractName: string | undefined;
+    let contractName: string | undefined = resolvedDisplay; // Show ENS name if resolved
 
     if (abiOverride) {
       abi = abiOverride;
@@ -290,7 +301,8 @@ export async function handleCallRequest(
       }
 
       abi = metadataResult.data.abi as Abi;
-      contractName = metadataResult.data.name;
+      // Prefer Herd's contract name, but keep resolved ENS name as fallback
+      contractName = metadataResult.data.name || contractName;
     }
 
     // Find matching functions

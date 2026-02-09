@@ -113,7 +113,7 @@ describe('Send Tool', () => {
       const result = await handleSendRequest({ amount: '1.0' }, makeCtx());
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Invalid recipient address');
+      expect(result.content[0].text).toContain('Cannot resolve recipient');
     });
 
     it('rejects invalid address format', async () => {
@@ -123,7 +123,7 @@ describe('Send Tool', () => {
       }, makeCtx());
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Invalid recipient address');
+      expect(result.content[0].text).toContain('Cannot resolve recipient');
     });
 
     it('rejects address with wrong length', async () => {
@@ -133,7 +133,7 @@ describe('Send Tool', () => {
       }, makeCtx());
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Invalid recipient address');
+      expect(result.content[0].text).toContain('Cannot resolve recipient');
     });
 
     it('rejects missing amount', async () => {

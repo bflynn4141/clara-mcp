@@ -23,6 +23,7 @@ import {
 } from '../config/chains.js';
 import { resolveToken } from '../config/tokens.js';
 import { assessContractRisk, formatRiskAssessment, quickSafeCheck } from '../services/risk.js';
+import { resolveAddress, formatResolved } from '../services/resolve-address.js';
 import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
 import { requireGas } from '../gas-preflight.js';
 import { ClaraError, ClaraErrorCode } from '../errors.js';
@@ -37,6 +38,8 @@ export const sendToolDefinition = {
 **Examples:**
 - Send ETH: \`{"to": "0x...", "amount": "0.01", "chain": "base"}\`
 - Send USDC: \`{"to": "0x...", "amount": "10", "chain": "base", "token": "USDC"}\`
+- Send by name: \`{"to": "brian", "amount": "10", "token": "USDC"}\` (resolves brian.claraid.eth)
+- Send to ENS: \`{"to": "vitalik.eth", "amount": "0.01"}\`
 
 Supported tokens: USDC, USDT, DAI, WETH (or provide contract address).
 
@@ -46,7 +49,7 @@ Supported tokens: USDC, USDT, DAI, WETH (or provide contract address).
     properties: {
       to: {
         type: 'string',
-        description: 'Recipient address (0x...)',
+        description: 'Recipient: 0x address, Clara name (e.g., "brian" for brian.claraid.eth), or ENS name (e.g., "vitalik.eth")',
       },
       amount: {
         type: 'string',
@@ -113,16 +116,25 @@ export async function handleSendRequest(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<ToolResult> {
-  const to = args.to as string;
+  const toInput = args.to as string;
   const amount = args.amount as string;
   const chainName = (args.chain as string) || 'base';
   const tokenInput = args.token as string | undefined;
   const forceUnsafe = args.forceUnsafe as boolean | undefined;
 
-  // Validate inputs
-  if (!to || !to.startsWith('0x') || to.length !== 42) {
+  // Resolve recipient: 0x address, Clara name, or ENS name
+  let to: string;
+  let resolvedDisplay: string | undefined;
+  try {
+    const resolved = await resolveAddress(toInput);
+    to = resolved.address;
+    resolvedDisplay = resolved.displayName;
+  } catch (error) {
     return {
-      content: [{ type: 'text', text: '❌ Invalid recipient address. Must be a valid 0x address.' }],
+      content: [{
+        type: 'text',
+        text: `❌ Cannot resolve recipient "${toInput}": ${error instanceof Error ? error.message : 'Unknown error'}`,
+      }],
       isError: true,
     };
   }
@@ -352,7 +364,7 @@ export async function handleSendRequest(
       `✅ Transaction sent!`,
       '',
       `**Amount:** ${sentAmount} ${symbol}`,
-      `**To:** \`${to}\``,
+      `**To:** ${resolvedDisplay ? `${resolvedDisplay} (\`${to}\`)` : `\`${to}\``}`,
       `**Chain:** ${chainName}`,
       `**From:** \`${fromAddress}\``,
       '',

@@ -11,6 +11,7 @@
 import { getProviderRegistry, type ContractMetadata, type ContractMetadataSummary } from '../providers/index.js';
 import { getCachedSummary } from '../cache/index.js';
 import type { SupportedChain } from '../config/chains.js';
+import { resolveAddress } from '../services/resolve-address.js';
 
 // ============================================================================
 // Tool Definition
@@ -44,7 +45,7 @@ Supported chains: ethereum, base`,
     properties: {
       address: {
         type: 'string',
-        description: 'Contract address (0x...)',
+        description: 'Contract address (0x...), Clara name (e.g., "brian" for brian.claraid.eth), or ENS name (e.g., "vitalik.eth")',
       },
       chain: {
         type: 'string',
@@ -343,16 +344,20 @@ function formatAnalysis(
 export async function handleAnalyzeContract(
   args: Record<string, unknown>
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
-  const address = args.address as string;
+  const addressInput = args.address as string;
   const chain = (args.chain as SupportedChain) || 'base';
   const detailLevel = (args.detailLevel as string) || 'summary';
 
-  // Validate address
-  if (!address || !address.match(/^0x[a-fA-F0-9]{40}$/)) {
+  // Resolve address: 0x address, Clara name, or ENS name
+  let address: string;
+  try {
+    const resolved = await resolveAddress(addressInput);
+    address = resolved.address;
+  } catch (error) {
     return {
       content: [{
         type: 'text',
-        text: '❌ Invalid contract address. Must be a valid Ethereum address (0x...)',
+        text: `❌ Cannot resolve address "${addressInput}": ${error instanceof Error ? error.message : 'Unknown error'}`,
       }],
       isError: true,
     };
