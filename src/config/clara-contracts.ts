@@ -184,6 +184,17 @@ export const IDENTITY_REGISTRY_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
+  // Update the URI for an existing agent (owner only)
+  {
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'newURI', type: 'string' },
+    ],
+    name: 'updateURI',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
 ] as const;
 
 export const REPUTATION_REGISTRY_ABI = [
