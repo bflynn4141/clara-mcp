@@ -5,7 +5,7 @@
  * Handles ERC-20 approval + bounty creation in sequence.
  */
 
-import { encodeFunctionData, parseUnits, type Hex } from 'viem';
+import { encodeFunctionData, parseUnits, createPublicClient, http, type Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
@@ -14,7 +14,7 @@ import {
   BOUNTY_FACTORY_ABI,
   ERC20_APPROVE_ABI,
 } from '../config/clara-contracts.js';
-import { getChainId, getExplorerTxUrl } from '../config/chains.js';
+import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
 import { resolveToken } from '../config/tokens.js';
 import {
   toDataUri,
@@ -134,12 +134,19 @@ export async function handleWorkPost(
       args: [contracts.bountyFactory, totalApproval],
     });
 
-    await signAndSendTransaction(ctx.session.walletId!, {
+    const approveResult = await signAndSendTransaction(ctx.session.walletId!, {
       to: token.address,
       value: 0n,
       data: approveData,
       chainId,
     });
+
+    // Wait for approval tx to be mined so on-chain nonce advances
+    const publicClient = createPublicClient({
+      chain: (await import('viem/chains')).base,
+      transport: http(getRpcUrl('base')),
+    });
+    await publicClient.waitForTransactionReceipt({ hash: approveResult.txHash });
 
     // Step 2: Create bounty
     const taskMetadata = {

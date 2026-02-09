@@ -24,6 +24,37 @@ import { createParaAccount } from './account.js';
 import { getRpcUrl, type SupportedChain } from '../config/chains.js';
 import { estimateGas } from './gas.js';
 
+/**
+ * Module-level nonce tracker
+ *
+ * Tracks the last nonce used per address+chain to prevent stale nonce reads
+ * when multiple transactions are sent in rapid succession (before the first
+ * one is mined). Key format: "{chainId}:{address}".
+ */
+const nonceTracker = new Map<string, number>();
+
+/**
+ * Get the tracked nonce for an address on a chain.
+ * Returns undefined if no nonce has been tracked yet.
+ */
+export function getTrackedNonce(chainId: number, address: string): number | undefined {
+  return nonceTracker.get(`${chainId}:${address.toLowerCase()}`);
+}
+
+/**
+ * Update the tracked nonce after a successful transaction send.
+ */
+export function setTrackedNonce(chainId: number, address: string, nonce: number): void {
+  nonceTracker.set(`${chainId}:${address.toLowerCase()}`, nonce);
+}
+
+/**
+ * Reset the nonce tracker (for testing).
+ */
+export function resetNonceTracker(): void {
+  nonceTracker.clear();
+}
+
 // Chain mapping
 const CHAIN_MAP: Record<number, Chain> = {
   1: mainnet,
@@ -215,8 +246,16 @@ export async function signAndSendTransaction(
 
     // Get nonce if not provided
     if (request.nonce === undefined) {
-      request.nonce = await publicClient.getTransactionCount({ address });
-      console.error(`[para] Nonce: ${request.nonce}`);
+      const chainNonce = await publicClient.getTransactionCount({ address });
+      const tracked = getTrackedNonce(tx.chainId, address);
+      if (tracked !== undefined && tracked >= chainNonce) {
+        // Use tracked nonce + 1 since on-chain state hasn't caught up yet
+        request.nonce = tracked + 1;
+        console.error(`[para] Nonce (tracked): ${request.nonce} (chain=${chainNonce}, tracked=${tracked})`);
+      } else {
+        request.nonce = chainNonce;
+        console.error(`[para] Nonce (chain): ${request.nonce}`);
+      }
     }
 
     console.error(`[para] Sending transaction to ${tx.to.slice(0, 10)}...`);
@@ -227,6 +266,9 @@ export async function signAndSendTransaction(
     // 2. Sign via our custom account (which uses Para)
     // 3. Broadcast to the network
     const txHash = await walletClient.sendTransaction(request);
+
+    // Track the nonce we just used so subsequent sends increment correctly
+    setTrackedNonce(tx.chainId, address, request.nonce!);
 
     console.error(`[para] Transaction sent: ${txHash}`);
 
