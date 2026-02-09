@@ -1,9 +1,11 @@
 # Spec: Clara Unified Onboarding Flow
 
-**Status:** Draft
+**Status:** Implemented
 **Author:** Brian + Claude
 **Date:** 2026-02-08
+**Updated:** 2026-02-09
 **Depends on:** SPEC-ENS-CCIP-GATEWAY.md
+**Implementation:** CLAUDE.md orchestration (no new MCP tools — AI calls existing tools in sequence)
 
 ---
 
@@ -12,7 +14,7 @@
 New Clara users go through a unified onboarding that creates their wallet, assigns them an ENS subname, and registers them as an ERC-8004 agent — all in one flow. After onboarding, they have:
 
 1. A **wallet** (Para-managed, email-based)
-2. A **name** (e.g., `brian.clarapay.eth` — resolvable everywhere)
+2. A **name** (e.g., `brian.claraid.eth` — resolvable everywhere)
 3. An **agent identity** (ERC-8004 NFT on Base, with full registration file)
 4. They're **ready to work** (can browse bounties, get hired, get paid by name)
 
@@ -39,7 +41,7 @@ New Clara users go through a unified onboarding that creates their wallet, assig
 │  │                                                          │  │
 │  │  Clara: "What name do you want? This will be your        │  │
 │  │          identity that people can use to find and pay     │  │
-│  │          you. For example: brian.clarapay.eth"            │  │
+│  │          you. For example: brian.claraid.eth"            │  │
 │  │                                                          │  │
 │  │  User: "brian"                                           │  │
 │  │                                                          │  │
@@ -47,7 +49,7 @@ New Clara users go through a unified onboarding that creates their wallet, assig
 │  │    → Check availability via /ens/lookup/brian             │  │
 │  │    → If taken: suggest alternatives (brian1, b-flynn)     │  │
 │  │    → If available: POST /ens/register                    │  │
-│  │    → Result: brian.clarapay.eth ✓                         │  │
+│  │    → Result: brian.claraid.eth ✓                         │  │
 │  │                                                          │  │
 │  │  [No on-chain tx. Instant. Free.]                        │  │
 │  └──────────────────────────────────────────────────────────┘  │
@@ -65,7 +67,7 @@ New Clara users go through a unified onboarding that creates their wallet, assig
 │  │    name="Brian",                                         │  │
 │  │    skills=["solidity", "auditing"],                      │  │
 │  │    description="Smart contract security researcher",     │  │
-│  │    ensName="brian.clarapay.eth"      ← NEW FIELD          │  │
+│  │    ensName="brian.claraid.eth"      ← NEW FIELD          │  │
 │  │  )                                                       │  │
 │  │                                                          │  │
 │  │  Internally:                                             │  │
@@ -86,13 +88,13 @@ New Clara users go through a unified onboarding that creates their wallet, assig
 │  │  ┌────────────────────────────────────────────────┐      │  │
 │  │  │ ✅ You're all set!                              │      │  │
 │  │  │                                                │      │  │
-│  │  │ Name:    brian.clarapay.eth                      │      │  │
+│  │  │ Name:    brian.claraid.eth                      │      │  │
 │  │  │ Agent:   #42                                   │      │  │
 │  │  │ Wallet:  0x8744...affd                         │      │  │
 │  │  │ Skills:  solidity, auditing                    │      │  │
 │  │  │                                                │      │  │
 │  │  │ People can now:                                │      │  │
-│  │  │ • Send tokens to brian.clarapay.eth             │      │  │
+│  │  │ • Send tokens to brian.claraid.eth             │      │  │
 │  │  │ • Hire you for bounties by name                │      │  │
 │  │  │ • Look up your reputation on-chain             │      │  │
 │  │  └────────────────────────────────────────────────┘      │  │
@@ -127,7 +129,7 @@ Currently, `work_register` creates a minimal metadata blob:
   "services": [
     {
       "type": "ENS",
-      "endpoint": "brian.clarapay.eth"
+      "endpoint": "brian.claraid.eth"
     },
     {
       "type": "agentWallet",
@@ -194,7 +196,7 @@ binding = "CLARA_ENS"
 id = "..." # Create via `wrangler kv:namespace create CLARA_ENS`
 
 [vars]
-ENS_PARENT_DOMAIN = "clarapay.eth"
+ENS_PARENT_DOMAIN = "claraid.eth"
 
 # Secrets (via `wrangler secret put`):
 # GATEWAY_SIGNING_KEY = "0x..." (private key for CCIP-Read response signing)
@@ -246,7 +248,7 @@ Clara (internally):
      )
 
   4. Result:
-     "✅ Bounty posted for Brian (brian.clarapay.eth)
+     "✅ Bounty posted for Brian (brian.claraid.eth)
       Amount: 100 USDC
       Deadline: Feb 15, 2026
       Bond: 10 USDC (poster) + 10 USDC (worker)
@@ -269,10 +271,11 @@ Agents registered before this update have the old metadata format. Migration pat
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **Onboarding trigger** — Is this a new `wallet_onboard` tool, or an enhanced `wallet_setup`?
-2. **Skills taxonomy** — Free-form strings or predefined list?
-3. **Profile photos** — ENS supports avatar records. Should we integrate?
-4. **Social links** — Include Twitter/GitHub in registration file services?
-5. **Agent discovery via ENS** — Should `work_find` also search by ENS name?
+1. **Onboarding trigger** — **CLAUDE.md orchestration.** No new tool. AI calls `wallet_setup` → `wallet_register_name` → `work_register` in sequence, guided by AskUserQuestion at each step. Also auto-detects new wallets.
+2. **Skills taxonomy** — **Hybrid.** AskUserQuestion presents 4 common skills (Solidity, TypeScript, React, Security) as multi-select, with "Other" for free-form input.
+3. **Profile photos** — **Not now.** Keep it lean. Can add later.
+4. **Social links** — **Not now.** Keep it lean. Can add later.
+5. **Agent discovery via ENS** — Already implemented via `resolve-address.ts`. Bare names resolve to claraid.eth subnames.
+6. **Domain** — **claraid.eth** (registered 2026-02-09, owner 0x8744..affd).

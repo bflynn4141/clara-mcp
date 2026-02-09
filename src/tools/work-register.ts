@@ -10,7 +10,7 @@
  * 2. Upload to clara-proxy after getting agentId (rich, web-accessible)
  */
 
-import { encodeFunctionData, type Hex } from 'viem';
+import { encodeFunctionData } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
