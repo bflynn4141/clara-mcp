@@ -111,6 +111,13 @@ import {
   lookupNameToolDefinition, handleLookupNameRequest,
 } from './tools/ens-name.js';
 
+// Messaging
+import {
+  messageToolDefinition, handleMessageRequest,
+  inboxToolDefinition, handleInboxRequest,
+  threadToolDefinition, handleThreadRequest,
+} from './tools/messaging.js';
+
 // Onboarding
 import { sponsorGasToolDefinition, handleSponsorGas } from './tools/sponsor-gas.js';
 
@@ -302,6 +309,29 @@ registerTool(lookupNameToolDefinition, handleLookupNameRequest, {
 registerTool(sponsorGasToolDefinition, handleSponsorGas, {
   requiresAuth: true,
   touchesSession: true,
+});
+
+// ─── Messaging ───────────────────────────────────────────────────────
+
+// Send a DM (auth required, touches session)
+registerTool(messageToolDefinition, handleMessageRequest, {
+  requiresAuth: true,
+  checksSpending: false,
+  touchesSession: true,
+});
+
+// Check inbox (auth required, read-only)
+registerTool(inboxToolDefinition, handleInboxRequest, {
+  requiresAuth: true,
+  checksSpending: false,
+  touchesSession: false,
+});
+
+// Open thread (auth required, read-only)
+registerTool(threadToolDefinition, handleThreadRequest, {
+  requiresAuth: true,
+  checksSpending: false,
+  touchesSession: false,
 });
 
 // ─── Work/Bounty Tools (ERC-8004) ────────────────────────────────────
