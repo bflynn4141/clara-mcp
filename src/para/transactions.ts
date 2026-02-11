@@ -23,6 +23,7 @@ import { getSession } from '../storage/session.js';
 import { createParaAccount } from './account.js';
 import { getRpcUrl, type SupportedChain } from '../config/chains.js';
 import { estimateGas } from './gas.js';
+import { decodeContractError, formatContractError } from '../utils/contract-errors.js';
 
 /**
  * Module-level nonce tracker
@@ -274,10 +275,19 @@ export async function signAndSendTransaction(
 
     return { txHash };
   } catch (error) {
-    // Enhance error message
+    // Check if this is a contract revert error
+    const decodedError = decodeContractError(error);
+    if (decodedError.signature !== 'Unknown') {
+      // This is a known contract error - throw with decoded message
+      const err = new Error(decodedError.message);
+      (err as any).isContractError = true;
+      (err as any).decodedError = decodedError;
+      throw err;
+    }
+
+    // Enhance error message for common non-contract errors
     const message = error instanceof Error ? error.message : String(error);
 
-    // Check for common errors
     if (message.includes('insufficient funds')) {
       throw new Error(
         `Insufficient funds for transaction. ` +
@@ -299,6 +309,7 @@ export async function signAndSendTransaction(
       );
     }
 
+    // Generic error
     throw new Error(`Transaction failed: ${message}`);
   }
 }

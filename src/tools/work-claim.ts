@@ -14,6 +14,7 @@ import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress, formatRawAmount } from './work-helpers.js';
 import { syncFromChain } from '../indexer/sync.js';
 import { getBountyByAddress } from '../indexer/queries.js';
+import { formatContractError } from '../utils/contract-errors.js';
 
 export const workClaimToolDefinition: Tool = {
   name: 'work_claim',
@@ -114,6 +115,18 @@ export async function handleWorkClaim(
       content: [{ type: 'text', text: lines.join('\n') }],
     };
   } catch (error) {
+    // Check if this is a decoded contract error
+    if ((error as any).isContractError) {
+      return {
+        content: [{
+          type: 'text',
+          text: formatContractError(error),
+        }],
+        isError: true,
+      };
+    }
+    
+    // Generic error fallback
     return {
       content: [{
         type: 'text',

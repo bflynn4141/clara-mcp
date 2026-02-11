@@ -135,6 +135,7 @@ import { workReputationToolDefinition, handleWorkReputation } from './tools/work
 import { workRateToolDefinition, handleWorkRate } from './tools/work-rate.js';
 import { workFindToolDefinition, handleWorkFind } from './tools/work-find.js';
 import { workProfileToolDefinition, handleWorkProfile } from './tools/work-profile.js';
+import { workApproveBondToolDefinition, handleWorkApproveBond } from './tools/work-approve-bond.js';
 
 // Challenge Tools (ERC-8004 Challenges)
 import { challengeBrowseToolDefinition, handleChallengeBrowse } from './tools/challenge-browse.js';
@@ -360,6 +361,12 @@ registerTool(workPostToolDefinition, handleWorkPost, {
 
 // Claim bounty (auth, on-chain tx)
 registerTool(workClaimToolDefinition, handleWorkClaim, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
+});
+
+// Approve bond for claiming (auth, on-chain tx)
+registerTool(workApproveBondToolDefinition, handleWorkApproveBond, {
   gasPreflight: 'check',
   gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
 });
