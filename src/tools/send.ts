@@ -119,8 +119,16 @@ export async function handleSendRequest(
   const toInput = args.to as string;
   const amount = args.amount as string;
   const chainName = (args.chain as string) || 'base';
-  const tokenInput = args.token as string | undefined;
+  let tokenInput = args.token as string | undefined;
   const forceUnsafe = args.forceUnsafe as boolean | undefined;
+
+  // Treat native token names (ETH, MATIC, etc.) as native sends
+  if (tokenInput && isSupportedChain(chainName)) {
+    const nativeSymbol = CHAINS[chainName].nativeSymbol;
+    if (tokenInput.toUpperCase() === nativeSymbol.toUpperCase()) {
+      tokenInput = undefined; // Use native send path
+    }
+  }
 
   // Resolve recipient: 0x address, Clara name, or ENS name
   let to: string;

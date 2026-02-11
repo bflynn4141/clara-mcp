@@ -65,6 +65,13 @@ async function signMessage(walletId: string, message: string, userAddress?: stri
 
   if (!response.ok) {
     const errorText = await response.text();
+    if (response.status === 500) {
+      throw new Error(
+        `Signing failed: ${response.status} - ${errorText}\n\n` +
+        `This may indicate a corrupted wallet session. ` +
+        `Try running \`wallet_logout\` then \`wallet_setup\` to create a fresh wallet.`
+      );
+    }
     throw new Error(`Signing failed: ${response.status} - ${errorText}`);
   }
 
@@ -180,6 +187,13 @@ async function signTypedData(
 
   if (!response.ok) {
     const errorText = await response.text();
+    if (response.status === 500) {
+      throw new Error(
+        `Signing failed: ${response.status} - ${errorText}\n\n` +
+        `This may indicate a corrupted wallet session. ` +
+        `Try running \`wallet_logout\` then \`wallet_setup\` to create a fresh wallet.`
+      );
+    }
     throw new Error(`Signing failed: ${response.status} - ${errorText}`);
   }
 
