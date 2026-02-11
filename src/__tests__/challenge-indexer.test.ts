@@ -36,6 +36,7 @@ function makeChallengeRecord(overrides: Partial<ChallengeRecord> = {}): Challeng
   return {
     challengeAddress: '0x1111111111111111111111111111111111111111',
     poster: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    evaluator: '',
     token: USDC_ADDRESS,
     prizePool: '500000000', // 500 USDC (6 decimals)
     deadline: Math.floor(Date.now() / 1000) + 86400 * 7, // 7 days from now

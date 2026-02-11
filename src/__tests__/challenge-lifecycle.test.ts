@@ -59,6 +59,7 @@ function makeChallenge(overrides: Partial<ChallengeRecord> = {}): ChallengeRecor
   return {
     challengeAddress: CHALLENGE_ADDR,
     poster: POSTER,
+    evaluator: '',
     token: USDC,
     prizePool: '1000000000', // 1000 USDC
     deadline: now + ONE_DAY * 7,

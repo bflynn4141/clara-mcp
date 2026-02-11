@@ -215,6 +215,7 @@ export async function handleChallengePost(
       args: [
         {
           token: token.address,
+          evaluator: '0x0000000000000000000000000000000000000000' as Hex, // poster-only mode (AI eval will set Clara's address)
           prizePool: prizeWei,
           deadline: BigInt(deadlineTimestamp),
           scoringDeadline: BigInt(scoringDeadlineTimestamp),

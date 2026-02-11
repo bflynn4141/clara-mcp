@@ -479,6 +479,7 @@ function applyChallengeCreated(
     idx.challenges[addr] = {
       challengeAddress: addr,
       poster: args.poster.toLowerCase(),
+      evaluator: '',  // Not in event — readable from contract getter
       token: args.token.toLowerCase(),
       prizePool: args.prizePool.toString(),
       deadline: Number(args.deadline),

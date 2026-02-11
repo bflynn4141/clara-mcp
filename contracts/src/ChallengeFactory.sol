@@ -17,6 +17,7 @@ contract ChallengeFactory {
     /// @notice Parameters for creating a new challenge
     struct CreateParams {
         address token;
+        address evaluator;  // address authorized to post scores (0x0 = poster-only)
         uint256 prizePool;
         uint256 deadline;
         uint256 scoringDeadline;
@@ -118,6 +119,7 @@ contract ChallengeFactory {
         // Initialize the proxy
         Challenge(challenge).initialize(Challenge.InitParams({
             poster: msg.sender,
+            evaluator: p.evaluator,
             token: p.token,
             prizePool: p.prizePool,
             deadline: p.deadline,

@@ -35,6 +35,7 @@ contract Challenge is ReentrancyGuard {
     /// @notice Initialization parameters (struct to avoid stack-too-deep)
     struct InitParams {
         address poster;
+        address evaluator;  // address authorized to post scores (0x0 = poster-only)
         address token;
         uint256 prizePool;
         uint256 deadline;
@@ -52,6 +53,7 @@ contract Challenge is ReentrancyGuard {
     // ──────────────────────────── State ────────────────────────────
 
     address public poster;
+    address public evaluator;
     IERC20  public token;
     uint256 public prizePool;
     uint256 public deadline;
@@ -120,11 +122,19 @@ contract Challenge is ReentrancyGuard {
     error DuplicateWinner();
     error InvalidPrizeAmount();
     error NotASubmitter();
+    error NotEvaluator();
 
     // ──────────────────────────── Modifiers ────────────────────────
 
     modifier onlyPoster() {
         if (msg.sender != poster) revert NotPoster();
+        _;
+    }
+
+    /// @dev Poster can always post scores. If an evaluator is set, they can too.
+    modifier onlyEvaluator() {
+        if (msg.sender != poster && (evaluator == address(0) || msg.sender != evaluator))
+            revert NotEvaluator();
         _;
     }
 
@@ -148,6 +158,7 @@ contract Challenge is ReentrancyGuard {
 
         _initialized      = true;
         poster             = p.poster;
+        evaluator          = p.evaluator;
         token              = IERC20(p.token);
         prizePool          = p.prizePool;
         deadline           = p.deadline;
@@ -247,7 +258,7 @@ contract Challenge is ReentrancyGuard {
     /// @dev Requires exactly `winnerCount` winners. Prize amounts are enforced against
     ///      payoutBps — the last winner absorbs integer-division rounding dust.
     /// @param _winners Array of winners with pre-computed prize amounts.
-    function postScores(Winner[] calldata _winners) external nonReentrant onlyPoster inStatus(ChallengeStatus.Scoring) {
+    function postScores(Winner[] calldata _winners) external nonReentrant onlyEvaluator inStatus(ChallengeStatus.Scoring) {
         if (scorePostedAt != 0) revert ScoresAlreadyPosted();
         if (_winners.length != winnerCount) revert InvalidWinnerCount();
 

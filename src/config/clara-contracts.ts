@@ -655,6 +655,7 @@ export const CHALLENGE_FACTORY_ABI = [
         type: 'tuple',
         components: [
           { name: 'token', type: 'address' },
+          { name: 'evaluator', type: 'address' },
           { name: 'prizePool', type: 'uint256' },
           { name: 'deadline', type: 'uint256' },
           { name: 'scoringDeadline', type: 'uint256' },
@@ -750,6 +751,13 @@ export const CHALLENGE_ABI = [
   {
     inputs: [],
     name: 'poster',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'evaluator',
     outputs: [{ name: '', type: 'address' }],
     stateMutability: 'view',
     type: 'function',

@@ -158,6 +158,8 @@ export interface ChallengeRecord {
   challengeAddress: string;
   /** Address that created and funded the challenge */
   poster: string;
+  /** Address authorized to post scores (0x0 = poster-only) */
+  evaluator: string;
   /** ERC-20 token used for prize pool */
   token: string;
   /** Total prize pool as string (bigint serialization) */
