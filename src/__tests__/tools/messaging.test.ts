@@ -44,6 +44,7 @@ function makeCtx(address: Hex = TEST_ADDRESS): ToolContext {
       walletId: 'test-wallet-id',
     } as any,
     walletAddress: address,
+    sessionKey: null,
   };
 }
 
@@ -268,15 +269,16 @@ describe('handleMessageRequest', () => {
         expect.stringContaining('/api/v1/messages'),
         expect.objectContaining({
           method: 'POST',
-          headers: expect.objectContaining({
-            'Content-Type': 'application/json',
-            'X-Clara-Address': TEST_ADDRESS,
-          }),
         }),
       );
 
-      // Verify body payload
+      // Verify headers (proxyFetch uses Headers API)
       const callArgs = mockFetch.mock.calls[0];
+      const headers = callArgs[1].headers as Headers;
+      expect(headers.get('Content-Type')).toBe('application/json');
+      expect(headers.get('X-Clara-Address')).toBe(TEST_ADDRESS);
+
+      // Verify body payload
       const body = JSON.parse(callArgs[1].body);
       expect(body.to).toBe(OTHER_ADDRESS);
       expect(body.body).toBe('test msg');
@@ -923,8 +925,8 @@ describe('handleThreadRequest', () => {
       expect(url).toContain('with=brian');
       expect(url).toContain('limit=30');
 
-      const headers = mockFetch.mock.calls[0][1].headers;
-      expect(headers['X-Clara-Address']).toBe(TEST_ADDRESS);
+      const headers = mockFetch.mock.calls[0][1].headers as Headers;
+      expect(headers.get('X-Clara-Address')).toBe(TEST_ADDRESS);
     });
 
     it('marks thread as read after opening', async () => {

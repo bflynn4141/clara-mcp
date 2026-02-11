@@ -129,20 +129,27 @@ export function signCanonicalMessage(message: string, privateKeyHex: string): st
   const hashBytes = hexToBytes(messageHash);
   const privateKeyBytes = hexToBytes(privateKeyHex);
 
-  // 'recovered' format: 65 bytes = [recovery(1), r(32), s(32)]
-  const sigBytes = secp256k1.sign(hashBytes, privateKeyBytes, { format: 'recovered' });
-  const recovery = sigBytes[0];
-  const r = sigBytes.slice(1, 33);
-  const s = sigBytes.slice(33, 65);
+  try {
+    // 'recovered' format: 65 bytes = [recovery(1), r(32), s(32)]
+    const sigBytes = secp256k1.sign(hashBytes, privateKeyBytes, { format: 'recovered' });
+    const recovery = sigBytes[0];
+    const r = sigBytes.slice(1, 33);
+    const s = sigBytes.slice(33, 65);
 
-  // Rearrange to Ethereum format: [r(32), s(32), v(1)]
-  const v = recovery + 27;
-  const ethSig = new Uint8Array(65);
-  ethSig.set(r, 0);
-  ethSig.set(s, 32);
-  ethSig[64] = v;
+    // Rearrange to Ethereum format: [r(32), s(32), v(1)]
+    const v = recovery + 27;
+    const ethSig = new Uint8Array(65);
+    ethSig.set(r, 0);
+    ethSig.set(s, 32);
+    ethSig[64] = v;
 
-  return '0x' + Buffer.from(ethSig).toString('hex');
+    return '0x' + Buffer.from(ethSig).toString('hex');
+  } finally {
+    // Zero the private key bytes to reduce exposure window in memory.
+    // The hex string itself is immutable (JS limitation), but we can at least
+    // clear the typed array used for signing.
+    privateKeyBytes.fill(0);
+  }
 }
 
 /**
@@ -210,6 +217,15 @@ export function sha256hex(input: string): string {
 
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (clean.length === 0) {
+    throw new Error('hexToBytes: empty hex string');
+  }
+  if (clean.length % 2 !== 0) {
+    throw new Error(`hexToBytes: odd-length hex string (${clean.length} chars)`);
+  }
+  if (!/^[0-9a-fA-F]+$/.test(clean)) {
+    throw new Error('hexToBytes: non-hex characters in input');
+  }
   const bytes = new Uint8Array(clean.length / 2);
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
