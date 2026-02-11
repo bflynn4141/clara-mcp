@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { BountyIndex, AgentRecord } from './types.js';
-import { getBountyContracts, getClaraContracts } from '../config/clara-contracts.js';
+import { getBountyContracts, getChallengeContracts, getClaraContracts } from '../config/clara-contracts.js';
 import { FACTORY_DEPLOY_BLOCK } from '../config/clara-contracts.js';
 
 const CLARA_DIR = join(homedir(), '.clara');
@@ -42,6 +42,7 @@ function defaultIndex(): BountyIndex {
     agents: {},
     feedbacks: {},
     agentsById: {},
+    challenges: {},
   };
 }
 
@@ -97,6 +98,7 @@ export function loadIndex(): BountyIndex {
       agents,
       feedbacks: index.feedbacks ?? {},
       agentsById: index.agentsById ?? rebuildAgentsById(agents),
+      challenges: index.challenges ?? {},
     };
   } catch {
     console.error('[indexer] Corrupt bounties.json, resetting index');

@@ -21,7 +21,16 @@ export {
   getReputationSummary,
 } from './queries.js';
 export type { BountyFilter, IndexStats, AgentFilter, ReputationSummary } from './queries.js';
-export type { BountyRecord, BountyIndex, BountyStatus, AgentRecord, FeedbackRecord } from './types.js';
+export type { BountyRecord, BountyIndex, BountyStatus, AgentRecord, FeedbackRecord, ChallengeRecord, ChallengeStatus, SubmissionRecord, WinnerRecord } from './types.js';
+export {
+  getOpenChallenges,
+  getChallengeByAddress,
+  getChallengesByPoster,
+  getChallengeLeaderboard,
+  getAgentChallengeHistory,
+  getAgentChallengeStats,
+} from './challenge-queries.js';
+export type { ChallengeFilter, ChallengeParticipation, AgentChallengeStats } from './challenge-queries.js';
 
 import { syncFromChain, startPolling } from './sync.js';
 

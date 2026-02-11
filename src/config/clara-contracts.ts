@@ -616,6 +616,335 @@ export const BOUNTY_EVENTS = [
   },
 ] as const;
 
+// ─── Challenge Bounty System Contracts ─────────────────────────────
+
+export interface ChallengeContracts {
+  challengeFactory: Hex;
+}
+
+const CHALLENGE_CONTRACTS: Record<ClaraNetwork, ChallengeContracts> = {
+  testnet: {
+    challengeFactory: '0x0000000000000000000000000000000000000000',  // Placeholder — deploy on Sepolia
+  },
+  mainnet: {
+    challengeFactory: '0x0000000000000000000000000000000000000000',  // Placeholder — deploy on Base
+  },
+};
+
+export function getChallengeContracts(): ChallengeContracts {
+  return CHALLENGE_CONTRACTS[getClaraNetwork()];
+}
+
+// ─── Challenge Factory Deploy Block ──────────────────────────────────
+
+/** First block to scan for ChallengeCreated events, per network */
+const CHALLENGE_FACTORY_DEPLOY_BLOCKS: Record<ClaraNetwork, bigint> = {
+  testnet: 0n,   // Placeholder — set after deployment
+  mainnet: 0n,   // Placeholder — set after deployment
+};
+
+export const CHALLENGE_FACTORY_DEPLOY_BLOCK = CHALLENGE_FACTORY_DEPLOY_BLOCKS[getClaraNetwork()];
+
+// ─── Challenge ABI Fragments ────────────────────────────────────────
+
+export const CHALLENGE_FACTORY_ABI = [
+  {
+    inputs: [
+      {
+        name: 'p',
+        type: 'tuple',
+        components: [
+          { name: 'token', type: 'address' },
+          { name: 'prizePool', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' },
+          { name: 'scoringDeadline', type: 'uint256' },
+          { name: 'challengeURI', type: 'string' },
+          { name: 'evalConfigHash', type: 'bytes32' },
+          { name: 'privateSetHash', type: 'bytes32' },
+          { name: 'winnerCount', type: 'uint8' },
+          { name: 'payoutBps', type: 'uint16[]' },
+          { name: 'maxParticipants', type: 'uint256' },
+          { name: 'skillTags', type: 'string[]' },
+        ],
+      },
+    ],
+    name: 'createChallenge',
+    outputs: [{ name: 'challenge', type: 'address' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'posterBondRate',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
+export const CHALLENGE_ABI = [
+  // === POSTER FUNCTIONS ===
+  {
+    inputs: [
+      { name: '_winners', type: 'tuple[]', components: [
+        { name: 'account', type: 'address' },
+        { name: 'agentId', type: 'uint256' },
+        { name: 'score', type: 'uint256' },
+        { name: 'prizeAmount', type: 'uint256' },
+      ]},
+    ],
+    name: 'postScores',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'cancel',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  // === AGENT FUNCTIONS ===
+  {
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'solutionURI', type: 'string' },
+      { name: 'solutionHash', type: 'bytes32' },
+    ],
+    name: 'submit',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'claimPrize',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  // === PERMISSIONLESS PUBLIC FUNCTIONS ===
+  {
+    inputs: [],
+    name: 'advanceToScoring',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'finalize',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'expire',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  // === VIEW FUNCTIONS ===
+  {
+    inputs: [],
+    name: 'poster',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'token',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'prizePool',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'deadline',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'scoringDeadline',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'challengeURI',
+    outputs: [{ name: '', type: 'string' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'evalConfigHash',
+    outputs: [{ name: '', type: 'bytes32' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'winnerCount',
+    outputs: [{ name: '', type: 'uint8' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'status',
+    outputs: [{ name: '', type: 'uint8' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'submissionCount',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'posterBond',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'maxParticipants',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'scorePostedAt',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'submitter', type: 'address' }],
+    name: 'submissions',
+    outputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'solutionURI', type: 'string' },
+      { name: 'solutionHash', type: 'bytes32' },
+      { name: 'submittedAt', type: 'uint256' },
+      { name: 'version', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'index', type: 'uint256' }],
+    name: 'winners',
+    outputs: [
+      { name: 'account', type: 'address' },
+      { name: 'agentId', type: 'uint256' },
+      { name: 'score', type: 'uint256' },
+      { name: 'prizeAmount', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
+// ─── Challenge Event ABI Fragments ──────────────────────────────────
+
+/**
+ * ChallengeFactory events — emitted when a new challenge proxy is created.
+ * Used by the embedded indexer to discover new challenge addresses.
+ */
+export const CHALLENGE_FACTORY_EVENTS = [
+  {
+    type: 'event' as const,
+    name: 'ChallengeCreated',
+    inputs: [
+      { name: 'challenge', type: 'address', indexed: true },
+      { name: 'poster', type: 'address', indexed: true },
+      { name: 'token', type: 'address', indexed: false },
+      { name: 'prizePool', type: 'uint256', indexed: false },
+      { name: 'posterBond', type: 'uint256', indexed: false },
+      { name: 'deadline', type: 'uint256', indexed: false },
+      { name: 'scoringDeadline', type: 'uint256', indexed: false },
+      { name: 'challengeURI', type: 'string', indexed: false },
+      { name: 'skillTags', type: 'string[]', indexed: false },
+    ],
+  },
+] as const;
+
+/**
+ * Challenge lifecycle events — emitted by individual challenge proxies.
+ * Used by the indexer to track submissions, scoring, and payouts.
+ */
+export const CHALLENGE_EVENTS = [
+  {
+    type: 'event' as const,
+    name: 'SubmissionReceived',
+    inputs: [
+      { name: 'submitter', type: 'address', indexed: true },
+      { name: 'agentId', type: 'uint256', indexed: true },
+      { name: 'version', type: 'uint256', indexed: false },
+      { name: 'solutionHash', type: 'bytes32', indexed: false },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'ScoresPosted',
+    inputs: [
+      { name: 'challenge', type: 'address', indexed: true },
+      { name: 'winnerCountPosted', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'PrizeClaimed',
+    inputs: [
+      { name: 'winner', type: 'address', indexed: true },
+      { name: 'rank', type: 'uint256', indexed: false },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'ChallengeFinalized',
+    inputs: [
+      { name: 'challenge', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'ChallengeExpired',
+    inputs: [
+      { name: 'challenge', type: 'address', indexed: true },
+      { name: 'refundPerSubmitter', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event' as const,
+    name: 'ChallengeCancelled',
+    inputs: [
+      { name: 'challenge', type: 'address', indexed: true },
+    ],
+  },
+] as const;
+
 // ─── Public Client Helper ───────────────────────────────────────────
 
 export function getClaraPublicClient() {

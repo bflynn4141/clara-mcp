@@ -16,14 +16,17 @@ import { parseEventLogs } from 'viem';
 import {
   getClaraPublicClient,
   getBountyContracts,
+  getChallengeContracts,
   BOUNTY_FACTORY_EVENTS,
   BOUNTY_EVENTS,
   IDENTITY_REGISTRY_EVENTS,
   REPUTATION_REGISTRY_EVENTS,
+  CHALLENGE_FACTORY_EVENTS,
+  CHALLENGE_EVENTS,
   FACTORY_DEPLOY_BLOCK,
 } from '../config/clara-contracts.js';
 import { loadIndex, saveIndex } from './store.js';
-import type { BountyIndex, BountyRecord, AgentRecord, FeedbackRecord } from './types.js';
+import type { BountyIndex, BountyRecord, AgentRecord, FeedbackRecord, ChallengeRecord, WinnerRecord } from './types.js';
 import { parseTaskURI } from '../tools/work-helpers.js';
 
 /** Maximum block range per getLogs call (Base Sepolia safe limit) */
@@ -55,6 +58,7 @@ export function getIndex(): BountyIndex | null {
 export async function syncFromChain(): Promise<void> {
   const client = getClaraPublicClient();
   const { bountyFactory, identityRegistry, reputationRegistry } = getBountyContracts();
+  const { challengeFactory } = getChallengeContracts();
 
   // Load from disk on first call
   if (!index) {
@@ -213,6 +217,58 @@ export async function syncFromChain(): Promise<void> {
           applyNewFeedback(index, event, log);
         } else if (event.eventName === 'FeedbackRevoked') {
           applyFeedbackRevoked(index, event, log);
+        }
+      }
+    }
+
+    // 5. Fetch ChallengeCreated events from ChallengeFactory
+    //    Skip if factory address is zero (not yet deployed)
+    if (challengeFactory !== '0x0000000000000000000000000000000000000000') {
+      if (!index.challenges) index.challenges = {};
+
+      const challengeCreationLogs = await client.getLogs({
+        address: challengeFactory as Hex,
+        events: CHALLENGE_FACTORY_EVENTS,
+        fromBlock: chunkStart,
+        toBlock: chunkEnd,
+      });
+
+      for (const log of challengeCreationLogs) {
+        const parsed = parseEventLogs({
+          abi: CHALLENGE_FACTORY_EVENTS,
+          logs: [log],
+        });
+
+        for (const event of parsed) {
+          if (event.eventName === 'ChallengeCreated') {
+            applyChallengeCreated(index, event, log);
+          }
+        }
+      }
+
+      // 6. Fetch lifecycle events from known challenge proxies
+      const challengeAddresses = Object.keys(index.challenges) as Hex[];
+      if (challengeAddresses.length > 0) {
+        const challengeLifecycleLogs = await client.getLogs({
+          address: challengeAddresses,
+          events: CHALLENGE_EVENTS,
+          fromBlock: chunkStart,
+          toBlock: chunkEnd,
+        });
+
+        for (const log of challengeLifecycleLogs) {
+          const challengeAddr = log.address.toLowerCase();
+          const record = index.challenges[challengeAddr];
+          if (!record) continue;
+
+          const parsed = parseEventLogs({
+            abi: CHALLENGE_EVENTS,
+            logs: [log],
+          });
+
+          for (const event of parsed) {
+            applyChallengeLifecycleEvent(record, event, log);
+          }
         }
       }
     }
@@ -392,6 +448,135 @@ function recalcAgentReputation(idx: BountyIndex, agentId: number): void {
   agent.reputationCount = count;
   agent.reputationSum = sum;
   agent.reputationAvg = count > 0 ? sum / count : 0;
+}
+
+// ─── Challenge Event Application Functions ──────────────────────────
+
+/**
+ * Apply a ChallengeCreated event — create a new ChallengeRecord.
+ */
+function applyChallengeCreated(
+  idx: BountyIndex,
+  event: { eventName: string; args: Record<string, unknown> },
+  log: Log,
+): void {
+  const args = event.args as {
+    challenge: Hex;
+    poster: Hex;
+    token: Hex;
+    prizePool: bigint;
+    posterBond: bigint;
+    deadline: bigint;
+    scoringDeadline: bigint;
+    challengeURI: string;
+    skillTags: readonly string[];
+  };
+
+  if (!idx.challenges) idx.challenges = {};
+
+  const addr = args.challenge.toLowerCase();
+  if (!idx.challenges[addr]) {
+    idx.challenges[addr] = {
+      challengeAddress: addr,
+      poster: args.poster.toLowerCase(),
+      token: args.token.toLowerCase(),
+      prizePool: args.prizePool.toString(),
+      deadline: Number(args.deadline),
+      scoringDeadline: Number(args.scoringDeadline),
+      challengeURI: args.challengeURI,
+      evalConfigHash: '',   // Not in event — readable from contract getter
+      winnerCount: 0,       // Not in event — readable from contract getter
+      payoutBps: [],        // Not in event — readable from contract getter
+      skillTags: [...args.skillTags],
+      status: 'open',
+      submissionCount: 0,
+      privateSetHash: '',
+      maxParticipants: 0,
+      scorePostedAt: null,
+      submissions: {},
+      winners: [],
+      createdBlock: Number(log.blockNumber),
+      createdTxHash: log.transactionHash ?? '',
+      updatedBlock: Number(log.blockNumber),
+      posterBond: args.posterBond.toString(),
+    };
+  }
+}
+
+/**
+ * Apply a lifecycle event to a challenge record.
+ */
+function applyChallengeLifecycleEvent(
+  record: ChallengeRecord,
+  event: { eventName: string; args: Record<string, unknown> },
+  log: Log,
+): void {
+  const blockNum = Number(log.blockNumber);
+  record.updatedBlock = blockNum;
+
+  switch (event.eventName) {
+    case 'SubmissionReceived': {
+      const args = event.args as {
+        submitter: Hex;
+        agentId: bigint;
+        version: bigint;
+        solutionHash: Hex;
+      };
+      const submitter = args.submitter.toLowerCase();
+      const isNew = !record.submissions[submitter];
+
+      record.submissions[submitter] = {
+        submitter,
+        agentId: Number(args.agentId),
+        solutionURI: '',  // Not in event — agent fetches from contract if needed
+        solutionHash: args.solutionHash,
+        submittedAt: 0,   // Approximate from block; exact from contract
+        version: Number(args.version),
+        score: null,
+        rank: null,
+      };
+
+      if (isNew) {
+        record.submissionCount++;
+      }
+      break;
+    }
+    case 'ScoresPosted': {
+      // Event only emits (address indexed challenge, uint256 winnerCountPosted).
+      // Winner details (accounts, scores, prizeAmounts) are stored on-chain via
+      // Challenge.winners(index) — we don't have them from the event alone.
+      // Mark status and scorePostedAt; winner data is populated lazily by
+      // challenge_detail/challenge_leaderboard tools reading the contract directly.
+      record.status = 'scoring';
+      record.scorePostedAt = blockNum; // Block number as proxy for timestamp
+      break;
+    }
+    case 'PrizeClaimed': {
+      const args = event.args as {
+        winner: Hex;
+        rank: bigint;
+        amount: bigint;
+      };
+      const winnerAddr = args.winner.toLowerCase();
+      const winner = record.winners.find(w => w.address === winnerAddr);
+      if (winner) {
+        winner.claimed = true;
+      }
+      break;
+    }
+    case 'ChallengeFinalized': {
+      record.status = 'finalized';
+      break;
+    }
+    case 'ChallengeExpired': {
+      record.status = 'expired';
+      break;
+    }
+    case 'ChallengeCancelled': {
+      record.status = 'cancelled';
+      break;
+    }
+  }
 }
 
 /**

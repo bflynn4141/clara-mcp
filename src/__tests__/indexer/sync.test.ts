@@ -176,10 +176,15 @@ vi.mock('../../config/clara-contracts.js', () => {
       identityRegistry: '0xIdentity',
       reputationRegistry: '0xReputation',
     })),
+    getChallengeContracts: vi.fn(() => ({
+      challengeFactory: '0xChallengeFactory',
+    })),
     BOUNTY_FACTORY_EVENTS,
     BOUNTY_EVENTS,
     IDENTITY_REGISTRY_EVENTS,
     REPUTATION_REGISTRY_EVENTS,
+    CHALLENGE_FACTORY_EVENTS: [],
+    CHALLENGE_EVENTS: [],
     FACTORY_DEPLOY_BLOCK: 100n,
   };
 });
@@ -827,17 +832,17 @@ describe('sync', () => {
 
       await syncModule.syncFromChain();
 
-      // With no bounties: 3 getLogs per chunk (factory + identity + reputation)
+      // With no bounties: 4 getLogs per chunk (bounty factory + identity + reputation + challenge factory)
       // Chunk 1: 101 → 10100
       // Chunk 2: 10101 → 20100
       // Chunk 3: 20101 → 25100
       const calls = mockGetLogs.mock.calls;
-      expect(calls.length).toBe(9); // 3 chunks × 3 (factory + identity + reputation)
+      expect(calls.length).toBe(12); // 3 chunks × 4 (bounty factory + identity + reputation + challenge factory)
 
-      // Factory calls at indices 0, 3, 6
+      // Bounty factory calls at indices 0, 4, 8
       expect(calls[0][0]).toMatchObject({ fromBlock: 101n, toBlock: 10100n });
-      expect(calls[3][0]).toMatchObject({ fromBlock: 10101n, toBlock: 20100n });
-      expect(calls[6][0]).toMatchObject({ fromBlock: 20101n, toBlock: 25100n });
+      expect(calls[4][0]).toMatchObject({ fromBlock: 10101n, toBlock: 20100n });
+      expect(calls[8][0]).toMatchObject({ fromBlock: 20101n, toBlock: 25100n });
     });
 
     it('checkpoints lastBlock after each chunk', async () => {
@@ -896,8 +901,8 @@ describe('sync', () => {
 
       await syncModule.syncFromChain();
 
-      // 3 getLogs calls: factory events + identity registry + reputation registry (no lifecycle since no bounties)
-      expect(mockGetLogs).toHaveBeenCalledTimes(3);
+      // 4 getLogs calls: bounty factory + identity registry + reputation registry + challenge factory (no lifecycle since no bounties/challenges)
+      expect(mockGetLogs).toHaveBeenCalledTimes(4);
       // Verify factory, identity registry, and reputation registry calls
       expect(mockGetLogs).toHaveBeenCalledWith(
         expect.objectContaining({

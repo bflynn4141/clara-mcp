@@ -136,6 +136,15 @@ import { workRateToolDefinition, handleWorkRate } from './tools/work-rate.js';
 import { workFindToolDefinition, handleWorkFind } from './tools/work-find.js';
 import { workProfileToolDefinition, handleWorkProfile } from './tools/work-profile.js';
 
+// Challenge Tools (ERC-8004 Challenges)
+import { challengeBrowseToolDefinition, handleChallengeBrowse } from './tools/challenge-browse.js';
+import { challengeDetailToolDefinition, handleChallengeDetail } from './tools/challenge-detail.js';
+import { challengeSubmitToolDefinition, handleChallengeSubmit } from './tools/challenge-submit.js';
+import { challengeScoreToolDefinition, handleChallengeScore } from './tools/challenge-score.js';
+import { challengeLeaderboardToolDefinition, handleChallengeLeaderboard } from './tools/challenge-leaderboard.js';
+import { challengePostToolDefinition, handleChallengePost } from './tools/challenge-post.js';
+import { challengeClaimToolDefinition, handleChallengeClaim } from './tools/challenge-claim.js';
+
 // Providers
 import { initProviders } from './providers/index.js';
 
@@ -412,6 +421,50 @@ registerTool(workProfileToolDefinition, handleWorkProfile, {
 registerTool(workReputationToolDefinition, handleWorkReputation, {
   requiresAuth: false,
   touchesSession: false,
+});
+
+// ─── Challenge Tools (ERC-8004 Challenges) ──────────────────────────
+
+// Browse challenges (public)
+registerTool(challengeBrowseToolDefinition, handleChallengeBrowse, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// View challenge details (public)
+registerTool(challengeDetailToolDefinition, handleChallengeDetail, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// View challenge leaderboard (public)
+registerTool(challengeLeaderboardToolDefinition, handleChallengeLeaderboard, {
+  requiresAuth: false,
+  touchesSession: false,
+});
+
+// Submit solution (auth, on-chain tx)
+registerTool(challengeSubmitToolDefinition, handleChallengeSubmit, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
+});
+
+// Check your score (auth, read-only)
+registerTool(challengeScoreToolDefinition, handleChallengeScore, {
+  gasPreflight: 'none',
+});
+
+// Post challenge (auth, spending check, on-chain two-tx)
+registerTool(challengePostToolDefinition, handleChallengePost, {
+  checksSpending: true,
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 400_000n }),
+});
+
+// Claim prize (auth, on-chain tx)
+registerTool(challengeClaimToolDefinition, handleChallengeClaim, {
+  gasPreflight: 'check',
+  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
 });
 
 debugLog(`TOOLS_REGISTERED count=${getAllToolDefinitions().length}`);
