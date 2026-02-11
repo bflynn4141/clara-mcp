@@ -10,6 +10,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
+import { proxyFetch } from '../auth/proxy-fetch.js';
 
 // ─── Config ──────────────────────────────────────────────
 
@@ -43,16 +44,15 @@ export async function handleSponsorGas(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   try {
-    const response = await fetch(`${GATEWAY_BASE}/onboard/sponsor-gas`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Clara-Address': ctx.walletAddress,
+    const response = await proxyFetch(
+      `${GATEWAY_BASE}/onboard/sponsor-gas`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: ctx.walletAddress }),
       },
-      body: JSON.stringify({
-        address: ctx.walletAddress,
-      }),
-    });
+      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
+    );
 
     const result = (await response.json()) as Record<string, unknown>;
 

@@ -24,6 +24,8 @@ import {
 } from 'viem';
 import { toAccount } from 'viem/accounts';
 import { getSession } from '../storage/session.js';
+import { proxyFetch } from '../auth/proxy-fetch.js';
+import { getCurrentSessionKey } from '../auth/session-key.js';
 
 // Para API base URL - uses clara-proxy which injects API key
 const PARA_API_BASE = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
@@ -39,22 +41,17 @@ export async function signRawHash(
   hash: Hex,
   userAddress?: string
 ): Promise<Hex> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  // Include address header for authentication
-  if (userAddress) {
-    headers['X-Clara-Address'] = userAddress;
-  }
-
-  const response = await fetch(
+  const response = await proxyFetch(
     `${PARA_API_BASE}/api/v1/wallets/${walletId}/sign-raw`,
     {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: hash }),
-    }
+    },
+    {
+      walletAddress: userAddress || '',
+      sessionKey: getCurrentSessionKey(),
+    },
   );
 
   if (!response.ok) {

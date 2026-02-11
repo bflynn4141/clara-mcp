@@ -8,6 +8,8 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult, ToolContext } from '../middleware.js';
+import { proxyFetch } from '../auth/proxy-fetch.js';
+import { getCurrentSessionKey } from '../auth/session-key.js';
 
 // ─── Config ──────────────────────────────────────────────
 
@@ -156,14 +158,15 @@ export async function handleMessageRequest(
     const payload: Record<string, unknown> = { to, body: message };
     if (replyTo) payload.replyTo = replyTo;
 
-    const response = await fetch(`${PROXY_URL}/api/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Clara-Address': ctx.walletAddress,
+    const response = await proxyFetch(
+      `${PROXY_URL}/api/v1/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
+    );
 
     const result = (await response.json()) as Record<string, unknown>;
 
@@ -230,11 +233,11 @@ export async function handleInboxRequest(
     const url = new URL(`${PROXY_URL}/api/v1/inbox`);
     url.searchParams.set('limit', String(limit));
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'X-Clara-Address': ctx.walletAddress,
-      },
-    });
+    const response = await proxyFetch(
+      url.toString(),
+      {},
+      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
+    );
 
     const result = (await response.json()) as Record<string, unknown>;
 
@@ -348,11 +351,11 @@ export async function handleThreadRequest(
     url.searchParams.set('with', withUser);
     url.searchParams.set('limit', String(limit));
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'X-Clara-Address': ctx.walletAddress,
-      },
-    });
+    const response = await proxyFetch(
+      url.toString(),
+      {},
+      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
+    );
 
     const result = (await response.json()) as Record<string, unknown>;
 
@@ -396,12 +399,11 @@ export async function handleThreadRequest(
 
     // Mark thread as read (fire-and-forget)
     if (thread?.id) {
-      fetch(`${PROXY_URL}/api/v1/threads/${encodeURIComponent(thread.id)}/read`, {
-        method: 'POST',
-        headers: {
-          'X-Clara-Address': ctx.walletAddress,
-        },
-      }).catch(() => {
+      proxyFetch(
+        `${PROXY_URL}/api/v1/threads/${encodeURIComponent(thread.id)}/read`,
+        { method: 'POST' },
+        { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
+      ).catch(() => {
         // Non-fatal — thread display still works
       });
     }
@@ -458,11 +460,11 @@ async function fetchThread(
     const url = new URL(`${PROXY_URL}/api/v1/threads/${encodeURIComponent(threadId)}`);
     url.searchParams.set('limit', String(limit));
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'X-Clara-Address': walletAddress,
-      },
-    });
+    const response = await proxyFetch(
+      url.toString(),
+      {},
+      { walletAddress, sessionKey: getCurrentSessionKey() },
+    );
 
     if (!response.ok) return null;
 
@@ -483,10 +485,11 @@ async function fetchThread(
     const participantName = otherP?.name || 'Unknown';
 
     // Mark as read (fire-and-forget)
-    fetch(`${PROXY_URL}/api/v1/threads/${encodeURIComponent(threadId)}/read`, {
-      method: 'POST',
-      headers: { 'X-Clara-Address': walletAddress },
-    }).catch(() => {});
+    proxyFetch(
+      `${PROXY_URL}/api/v1/threads/${encodeURIComponent(threadId)}/read`,
+      { method: 'POST' },
+      { walletAddress, sessionKey: getCurrentSessionKey() },
+    ).catch(() => {});
 
     const lines = [
       `── 💬 Thread with ${participantName} ──────────────`,

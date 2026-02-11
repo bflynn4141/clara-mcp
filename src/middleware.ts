@@ -13,6 +13,8 @@
 import { getSession, touchSession } from './storage/session.js';
 import { ClaraError, ClaraErrorCode, formatClaraError } from './errors.js';
 import { checkGasPreflight, requireGas } from './gas-preflight.js';
+import { getOrCreateSessionKey, getCurrentSessionKey } from './auth/session-key.js';
+import type { SessionKeyData } from './auth/session-key.js';
 import type { Hex } from 'viem';
 import type { WalletSession } from './storage/session.js';
 import type { SupportedChain } from './config/chains.js';
@@ -23,6 +25,8 @@ import type { SupportedChain } from './config/chains.js';
 export interface ToolContext {
   session: WalletSession;
   walletAddress: Hex;
+  /** Ephemeral session key for signing proxy requests (null if init failed) */
+  sessionKey: SessionKeyData | null;
 }
 
 /**
@@ -109,9 +113,22 @@ export function wrapTool(
           );
         }
 
+        // 1b. Initialize session key (lazy — first tool call triggers SIWE delegation)
+        let sessionKey: SessionKeyData | null = getCurrentSessionKey();
+        if (!sessionKey && session.walletId) {
+          try {
+            sessionKey = await initSessionKey(session.walletId, session.address!);
+          } catch (err) {
+            // Non-fatal: session key init failed, continue without signing
+            // Requests will fall back to unsigned X-Clara-Address during migration
+            console.error(`[clara] Session key init failed: ${err}`);
+          }
+        }
+
         const ctx: ToolContext = {
           session,
           walletAddress: session.address as Hex,
+          sessionKey,
         };
 
         // 2. Gas preflight check (if configured)
@@ -173,4 +190,58 @@ export function wrapTool(
       };
     }
   };
+}
+
+// ─── Session Key Initialization ──────────────────────────
+
+const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+
+/**
+ * Initialize an ephemeral session key by signing a SIWE delegation via Para MPC.
+ *
+ * The delegation signing request itself uses the old X-Clara-Address header
+ * (bootstrapping: we need to sign to create the key that enables signing).
+ * This is a one-time operation per 24h session.
+ */
+async function initSessionKey(
+  walletId: string,
+  walletAddress: string,
+): Promise<SessionKeyData> {
+  return getOrCreateSessionKey(
+    walletAddress,
+    async (message: string) => {
+      // Sign the SIWE message via Para's /sign-raw endpoint.
+      // This is the one MPC call per session (~300ms).
+      // NOTE: This bootstrapping call uses unsigned X-Clara-Address because
+      // the session key doesn't exist yet (chicken-and-egg). The proxy allows
+      // unsigned requests for wallet endpoints (create/list/sign), only signing
+      // operations require session auth.
+      const messageHex = '0x' + Buffer.from(message, 'utf-8').toString('hex');
+
+      const response = await fetch(
+        `${PROXY_URL}/api/v1/wallets/${walletId}/sign-raw`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Clara-Address': walletAddress,
+          },
+          body: JSON.stringify({ data: messageHex }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`SIWE delegation signing failed: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json() as { signature: string };
+      const sig = result.signature.startsWith('0x')
+        ? result.signature
+        : `0x${result.signature}`;
+      return sig;
+    },
+    // Pass proxy URL for session registration: fetches server nonce + POSTs /auth/session
+    { proxyUrl: PROXY_URL },
+  );
 }

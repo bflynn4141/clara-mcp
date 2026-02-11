@@ -7,6 +7,8 @@
 
 import { type Hex, hashTypedData } from 'viem';
 import type { ToolContext, ToolResult } from '../middleware.js';
+import { proxyFetch } from '../auth/proxy-fetch.js';
+import { getCurrentSessionKey } from '../auth/session-key.js';
 
 // Para API base URL
 const PARA_API_BASE = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
@@ -51,16 +53,15 @@ async function signMessage(walletId: string, message: string, userAddress?: stri
   // Convert message to hex (Para expects hex-encoded data)
   const messageHex = '0x' + Buffer.from(message, 'utf-8').toString('hex');
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (userAddress) {
-    headers['X-Clara-Address'] = userAddress;
-  }
-
-  const response = await fetch(`${PARA_API_BASE}/api/v1/wallets/${walletId}/sign-raw`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ data: messageHex }),
-  });
+  const response = await proxyFetch(
+    `${PARA_API_BASE}/api/v1/wallets/${walletId}/sign-raw`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: messageHex }),
+    },
+    { walletAddress: userAddress || '', sessionKey: getCurrentSessionKey() },
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -166,17 +167,16 @@ async function signTypedData(
     message: message as any,
   });
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (userAddress) {
-    headers['X-Clara-Address'] = userAddress;
-  }
-
   // Sign the hash
-  const response = await fetch(`${PARA_API_BASE}/api/v1/wallets/${walletId}/sign-raw`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ data: hash }),
-  });
+  const response = await proxyFetch(
+    `${PARA_API_BASE}/api/v1/wallets/${walletId}/sign-raw`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: hash }),
+    },
+    { walletAddress: userAddress || '', sessionKey: getCurrentSessionKey() },
+  );
 
   if (!response.ok) {
     const errorText = await response.text();

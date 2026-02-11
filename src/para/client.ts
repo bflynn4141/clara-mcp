@@ -10,6 +10,8 @@
  */
 
 import { type Hex, hashTypedData, recoverAddress } from 'viem';
+import { proxyFetch } from '../auth/proxy-fetch.js';
+import { getCurrentSessionKey } from '../auth/session-key.js';
 
 /**
  * Deep convert BigInt values to strings for JSON serialization
@@ -141,23 +143,21 @@ export class ParaClient {
       },
     };
 
-    // Get wallet address from session for the X-Clara-Address header
+    // Get wallet address from session for authentication
     const session = await getSession();
     const walletAddress = session?.address;
     if (!walletAddress) {
       throw new Error('No wallet address found in session. Run wallet_setup first.');
     }
 
-    const response = await fetch(
+    const response = await proxyFetch(
       `${this.config.proxyUrl}/api/v1/wallets/${this.config.walletId}/sign-typed-data`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Clara-Address': walletAddress,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(signPayload),
-      }
+      },
+      { walletAddress, sessionKey: getCurrentSessionKey() },
     );
 
     if (!response.ok) {
@@ -175,23 +175,21 @@ export class ParaClient {
    * Used for direct on-chain operations when typed data isn't appropriate.
    */
   async signRaw(messageHash: Hex): Promise<Hex> {
-    // Get wallet address from session for the X-Clara-Address header
+    // Get wallet address from session for authentication
     const session = await getSession();
     const walletAddress = session?.address;
     if (!walletAddress) {
       throw new Error('No wallet address found in session. Run wallet_setup first.');
     }
 
-    const response = await fetch(
+    const response = await proxyFetch(
       `${this.config.proxyUrl}/api/v1/wallets/${this.config.walletId}/sign-raw`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Clara-Address': walletAddress,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageHash }),
-      }
+      },
+      { walletAddress, sessionKey: getCurrentSessionKey() },
     );
 
     if (!response.ok) {
