@@ -9,10 +9,10 @@
  * Uses Li.Fi API (free, no API key required).
  */
 
-import { type Hex, createPublicClient, http } from 'viem';
+import { type Hex, createPublicClient } from 'viem';
 import { getSession } from '../storage/session.js';
 import { signAndSendTransaction, type TransactionParams } from './transactions.js';
-import { type SupportedChain, getChainId, getRpcUrl, CHAINS } from '../config/chains.js';
+import { type SupportedChain, getChainId, getTransport, CHAINS } from '../config/chains.js';
 
 // Li.Fi API - aggregates across multiple DEXs
 const LIFI_API = 'https://li.quest/v1';
@@ -188,7 +188,7 @@ export async function checkAllowance(
 
   const client = createPublicClient({
     chain: CHAINS[chain].chain,
-    transport: http(getRpcUrl(chain)),
+    transport: getTransport(chain),
   });
 
   try {

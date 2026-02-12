@@ -11,7 +11,6 @@
 
 import {
   createPublicClient,
-  http,
   encodeFunctionData,
   namehash,
   formatEther,
@@ -19,7 +18,7 @@ import {
 } from 'viem';
 import { normalize } from 'viem/ens';
 import { mainnet } from 'viem/chains';
-import { getRpcUrl } from '../config/chains.js';
+import { getTransport } from '../config/chains.js';
 import {
   ENS_CONTRACTS,
   ETH_REGISTRAR_CONTROLLER_ABI,
@@ -84,7 +83,7 @@ export interface ENSRegisterData {
 function getEthereumClient() {
   return createPublicClient({
     chain: mainnet,
-    transport: http(getRpcUrl('ethereum')),
+    transport: getTransport('ethereum'),
   });
 }
 

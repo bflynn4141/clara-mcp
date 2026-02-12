@@ -13,10 +13,10 @@
  * resolves brian.claraid.eth automatically.
  */
 
-import { createPublicClient, http, type Hex, isAddress } from 'viem';
+import { createPublicClient, type Hex, isAddress } from 'viem';
 import { mainnet } from 'viem/chains';
 import { normalize } from 'viem/ens';
-import { getRpcUrl } from '../config/chains.js';
+import { getTransport } from '../config/chains.js';
 
 // ─── Config ──────────────────────────────────────────────
 
@@ -143,7 +143,7 @@ async function resolveEnsName(name: string): Promise<ResolvedAddress> {
 
     const client = createPublicClient({
       chain: mainnet,
-      transport: http(getRpcUrl('ethereum')),
+      transport: getTransport('ethereum'),
     });
 
     const address = await client.getEnsAddress({ name: normalized });

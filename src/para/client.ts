@@ -277,9 +277,14 @@ export async function setupWallet(email?: string): Promise<SetupResult> {
     }),
   });
 
-  // Handle 409 Conflict - wallet already exists, try to reconnect
+  // Handle 409 Conflict - wallet already exists, recover via walletId
   if (response.status === 409 && email) {
-    console.error('[clara] Wallet exists for email, attempting to reconnect...');
+    console.error('[clara] Wallet exists for email, recovering via walletId...');
+    const body = await response.json() as { walletId?: string; message?: string };
+    if (body.walletId) {
+      return await recoverWalletFromId(body.walletId, email);
+    }
+    // Fallback to old lookup path if 409 doesn't include walletId
     return await reconnectExistingWallet(email);
   }
 
@@ -289,14 +294,11 @@ export async function setupWallet(email?: string): Promise<SetupResult> {
   }
 
   const data = await response.json() as {
-    id?: string;
-    address?: string;
     wallet?: { id: string; address: string };
     wallets?: Array<{ id: string; address: string }>;
   };
 
-  // Proxy may return the wallet object directly (flat) or nested under .wallet/.wallets
-  const wallet = data.wallet || data.wallets?.[0] || (data.id && data.address ? { id: data.id, address: data.address } : null);
+  const wallet = data.wallet || data.wallets?.[0];
   if (!wallet) {
     throw new Error('No wallet returned from API');
   }
@@ -315,6 +317,60 @@ export async function setupWallet(email?: string): Promise<SetupResult> {
   return {
     isNew: true,
     address: wallet.address,
+    email,
+  };
+}
+
+/**
+ * Recover wallet address from walletId via test-sign + ecrecover
+ *
+ * When the 409 response includes a walletId, we can derive the address
+ * by signing a known hash and recovering the public key. This avoids
+ * needing proxy GET endpoints that don't exist.
+ */
+async function recoverWalletFromId(walletId: string, email: string): Promise<SetupResult> {
+  console.error(`[clara] Recovering address for walletId: ${walletId.slice(0, 8)}...`);
+
+  // Sign a known hash with a dummy address (proxy doesn't verify ownership)
+  const testHash = '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex;
+  const dummyAddress = '0x0000000000000000000000000000000000000001';
+
+  const signResponse = await fetch(`${CLARA_PROXY}/api/v1/wallets/${walletId}/sign-raw`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Clara-Address': dummyAddress,
+    },
+    body: JSON.stringify({ data: testHash }),
+  });
+
+  if (!signResponse.ok) {
+    const errText = await signResponse.text();
+    throw new Error(`Cannot recover wallet: sign-raw failed (${signResponse.status}): ${errText}`);
+  }
+
+  const { signature } = await signResponse.json() as { signature: string };
+  const sig = (signature.startsWith('0x') ? signature : `0x${signature}`) as Hex;
+
+  // Ecrecover the real address from the signature
+  const address = await recoverAddress({ hash: testHash, signature: sig });
+
+  console.error(`[clara] Recovered wallet address: ${address}`);
+
+  // Save session
+  await saveSession({
+    authenticated: true,
+    walletId,
+    address,
+    email,
+    chains: ['EVM'],
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  });
+
+  return {
+    isNew: false,
+    address,
     email,
   };
 }

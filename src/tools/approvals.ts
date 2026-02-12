@@ -10,14 +10,13 @@
 
 import {
   createPublicClient,
-  http,
   formatUnits,
   encodeFunctionData,
   type Hex,
 } from 'viem';
 import { signAndSendTransaction } from '../para/transactions.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
-import { CHAINS, getRpcUrl, isSupportedChain, type SupportedChain } from '../config/chains.js';
+import { CHAINS, getTransport, isSupportedChain, type SupportedChain } from '../config/chains.js';
 
 /**
  * Known tokens to check approvals for
@@ -216,7 +215,7 @@ export async function handleApprovalsRequest(
   try {
     const client = createPublicClient({
       chain: chainConfig.chain,
-      transport: http(getRpcUrl(chainName)),
+      transport: getTransport(chainName),
     });
 
     if (action === 'view') {

@@ -160,7 +160,7 @@ export async function handleWorkPost(
 
     // Wait for approval tx to be mined so on-chain nonce advances
     const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveResult.txHash });
-    
+
     if (approveReceipt.status !== 'success') {
       return {
         content: [{

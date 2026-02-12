@@ -5,7 +5,7 @@
  * Handles ERC-20 approval + challenge creation in sequence (two-tx pattern).
  */
 
-import { encodeFunctionData, parseUnits, keccak256, toBytes, createPublicClient, http, type Hex } from 'viem';
+import { encodeFunctionData, parseUnits, keccak256, toBytes, createPublicClient, type Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
@@ -14,7 +14,7 @@ import {
   CHALLENGE_FACTORY_ABI,
   ERC20_APPROVE_ABI,
 } from '../config/clara-contracts.js';
-import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
+import { getChainId, getExplorerTxUrl, getTransport } from '../config/chains.js';
 import { resolveToken } from '../config/tokens.js';
 import {
   toDataUri,
@@ -204,7 +204,7 @@ export async function handleChallengePost(
     // Wait for approval tx to be mined
     const publicClient = createPublicClient({
       chain: (await import('viem/chains')).base,
-      transport: http(getRpcUrl('base')),
+      transport: getTransport('base'),
     });
     await publicClient.waitForTransactionReceipt({ hash: approveResult.txHash });
 

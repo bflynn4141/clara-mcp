@@ -8,11 +8,11 @@
  * Returns both human-readable display and structured data for programmatic use.
  */
 
-import { createPublicClient, http, formatUnits, type Hex } from 'viem';
+import { createPublicClient, formatUnits, type Hex } from 'viem';
 import { getWalletStatus } from '../para/client.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { formatSpendingSummary, getSpendingHistory } from '../storage/spending.js';
-import { CHAINS, getRpcUrl, type SupportedChain } from '../config/chains.js';
+import { CHAINS, getTransport, type SupportedChain } from '../config/chains.js';
 import { getProviderRegistry } from '../providers/index.js';
 import {
   fetchClaraStakingData,
@@ -191,7 +191,7 @@ async function fetchChainBalancesLegacy(
   try {
     const client = createPublicClient({
       chain: chainConfig.chain,
-      transport: http(getRpcUrl(chain)),
+      transport: getTransport(chain),
     });
 
     // Fetch native balance

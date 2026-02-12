@@ -5,12 +5,13 @@
  * This is useful when claim() fails due to insufficient allowance.
  */
 
-import { encodeFunctionData, createPublicClient, http, type Hex } from 'viem';
+import { encodeFunctionData, createPublicClient, type Hex } from 'viem';
+import { base } from 'viem/chains';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
 import { BOUNTY_ABI, ERC20_APPROVE_ABI } from '../config/clara-contracts.js';
-import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
+import { getChainId, getExplorerTxUrl, getTransport } from '../config/chains.js';
 import { formatAddress, formatRawAmount } from './work-helpers.js';
 import { formatContractError } from '../utils/contract-errors.js';
 
@@ -58,8 +59,8 @@ export async function handleWorkApproveBond(
   try {
     // Read bounty details to get token and bond amount
     const publicClient = createPublicClient({
-      chain: { id: getChainId('base'), name: 'Base' } as const,
-      transport: http(getRpcUrl('base')),
+      chain: base,
+      transport: getTransport('base'),
     });
 
     const [token, workerBond] = await Promise.all([

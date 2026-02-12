@@ -160,3 +160,5 @@ export function isSupportedChain(chain: string): chain is SupportedChain {
  * List of all supported chain names
  */
 export const SUPPORTED_CHAINS: SupportedChain[] = ['base', 'ethereum', 'arbitrum', 'optimism', 'polygon'];
+
+export { getTransport } from './transport.js';

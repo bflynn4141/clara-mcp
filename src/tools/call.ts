@@ -16,7 +16,6 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import {
   encodeFunctionData,
   createPublicClient,
-  http,
   getAddress,
   type Hex,
   type Abi,
@@ -25,7 +24,7 @@ import {
 import { base, mainnet, arbitrum, optimism, polygon } from 'viem/chains';
 import { getProviderRegistry, isHerdEnabled } from '../providers/index.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
-import { getRpcUrl, type SupportedChain, getChainId } from '../config/chains.js';
+import { getTransport, type SupportedChain, getChainId } from '../config/chains.js';
 import { resolveAddress, formatResolved } from '../services/resolve-address.js';
 import {
   storePreparedTx,
@@ -373,10 +372,9 @@ export async function handleCallRequest(
 
     // Create public client for simulation
     const viemChain = CHAIN_MAP[chain];
-    const rpcUrl = getRpcUrl(chain);
     const publicClient = createPublicClient({
       chain: viemChain,
-      transport: http(rpcUrl),
+      transport: getTransport(chain),
     });
 
     // Simulate the transaction

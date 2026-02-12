@@ -10,9 +10,9 @@
  * - requireGas() — throws ClaraError if the wallet can't afford the tx
  */
 
-import { createPublicClient, http, formatEther, type Hex, type PublicClient } from 'viem';
+import { createPublicClient, formatEther, type Hex, type PublicClient } from 'viem';
 import { estimateGas } from './para/gas.js';
-import { getRpcUrl, CHAINS, type SupportedChain } from './config/chains.js';
+import { getTransport, CHAINS, type SupportedChain } from './config/chains.js';
 import { ClaraError, ClaraErrorCode } from './errors.js';
 
 export interface GasPreflight {
@@ -47,7 +47,7 @@ export async function checkGasPreflight(
   const chainConfig = CHAINS[chain];
   const client = createPublicClient({
     chain: chainConfig.chain,
-    transport: http(getRpcUrl(chain)),
+    transport: getTransport(chain),
   });
 
   // 1. Get ETH balance
