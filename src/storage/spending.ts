@@ -13,7 +13,7 @@
  * - Configurable: Users can adjust limits to their comfort level
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, statSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -78,7 +78,14 @@ const DEFAULT_CONFIG: SpendingConfig = {
  */
 function ensureDir(): void {
   if (!existsSync(CLARA_DIR)) {
-    mkdirSync(CLARA_DIR, { recursive: true });
+    mkdirSync(CLARA_DIR, { recursive: true, mode: 0o700 });
+  } else {
+    // Repair permissions on existing directories (may be world-readable from older versions)
+    const stats = statSync(CLARA_DIR);
+    const currentMode = stats.mode & 0o777;
+    if (currentMode !== 0o700) {
+      chmodSync(CLARA_DIR, 0o700);
+    }
   }
 }
 
@@ -92,6 +99,13 @@ export function loadSpendingConfig(): SpendingConfig {
 
   if (!existsSync(SPENDING_FILE)) {
     return { ...DEFAULT_CONFIG, history: [] };
+  }
+
+  // Repair file permissions if too open (older versions wrote 0o644)
+  const fileStats = statSync(SPENDING_FILE);
+  const fileMode = fileStats.mode & 0o777;
+  if (fileMode !== 0o600) {
+    chmodSync(SPENDING_FILE, 0o600);
   }
 
   try {
@@ -117,7 +131,7 @@ export function loadSpendingConfig(): SpendingConfig {
  */
 export function saveSpendingConfig(config: SpendingConfig): void {
   ensureDir();
-  writeFileSync(SPENDING_FILE, JSON.stringify(config, null, 2), 'utf-8');
+  writeFileSync(SPENDING_FILE, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
 }
 
 /**

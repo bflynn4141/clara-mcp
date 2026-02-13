@@ -15,12 +15,13 @@ import {
   type Hex,
   createPublicClient,
   createWalletClient,
+  http,
   type Chain,
 } from 'viem';
 import { base, mainnet, arbitrum, optimism, polygon } from 'viem/chains';
 import { getSession } from '../storage/session.js';
 import { createParaAccount } from './account.js';
-import { getTransport, type SupportedChain } from '../config/chains.js';
+import { getRpcUrl, type SupportedChain } from '../config/chains.js';
 import { estimateGas } from './gas.js';
 import { decodeContractError, formatContractError } from '../utils/contract-errors.js';
 
@@ -157,14 +158,14 @@ export async function signAndSendTransaction(
   // Create public client for reading chain state
   const publicClient = createPublicClient({
     chain,
-    transport: getTransport(chainName),
+    transport: http(getRpcUrl(chainName)),
   });
 
   // Create wallet client for sending transactions
   const walletClient = createWalletClient({
     account,
     chain,
-    transport: getTransport(chainName),
+    transport: http(getRpcUrl(chainName)),
   });
 
   // Normalize value to bigint

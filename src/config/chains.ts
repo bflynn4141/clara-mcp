@@ -97,7 +97,7 @@ const CHAINSTACK_ENDPOINTS: Record<SupportedChain, string> = {
  */
 const FALLBACK_RPCS: Record<SupportedChain, string> = {
   base: 'https://mainnet.base.org',
-  ethereum: 'https://cloudflare-eth.com',
+  ethereum: 'https://eth-mainnet.public.blastapi.io',
   arbitrum: 'https://arb1.arbitrum.io/rpc',
   optimism: 'https://mainnet.optimism.io',
   polygon: 'https://polygon-rpc.com',
@@ -160,5 +160,3 @@ export function isSupportedChain(chain: string): chain is SupportedChain {
  * List of all supported chain names
  */
 export const SUPPORTED_CHAINS: SupportedChain[] = ['base', 'ethereum', 'arbitrum', 'optimism', 'polygon'];
-
-export { getTransport } from './transport.js';

@@ -11,7 +11,7 @@
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { createPublicClient, encodeFunctionData, type Hex } from 'viem';
+import { createPublicClient, encodeFunctionData, http, type Hex } from 'viem';
 import {
   getSwapQuote,
   executeSwap,
@@ -22,7 +22,7 @@ import {
 } from '../para/swap.js';
 import { signAndSendTransaction } from '../para/transactions.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
-import { type SupportedChain, isSupportedChain, getChainId, getTransport, CHAINS } from '../config/chains.js';
+import { type SupportedChain, isSupportedChain, getChainId, getRpcUrl, CHAINS } from '../config/chains.js';
 import { getProviderRegistry, isHerdEnabled } from '../providers/index.js';
 import {
   cacheQuote,
@@ -442,7 +442,7 @@ export async function handleSwapRequest(
       const viemChain = CHAINS[chain].chain;
       const simClient = createPublicClient({
         chain: viemChain,
-        transport: getTransport(chain),
+        transport: http(getRpcUrl(chain)),
       });
       try {
         await simClient.call({
@@ -506,7 +506,7 @@ export async function handleSwapRequest(
     console.error(`[clara] Waiting for swap confirmation: ${swapResult.txHash}`);
     const publicClient = createPublicClient({
       chain: CHAINS[chain].chain,
-      transport: getTransport(chain),
+      transport: http(getRpcUrl(chain)),
     });
     
     let receipt;

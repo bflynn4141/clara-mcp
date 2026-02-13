@@ -10,6 +10,7 @@ import {
   X402Client,
   USDC_BASE,
   BASE_CHAIN_ID,
+  normalizeSignatureV,
   type EIP712Domain,
   type EIP712TypeDefinition,
 } from '../para/x402.js';
@@ -235,5 +236,34 @@ describe('X402Client v2 compatibility', () => {
       expect(signedTypes).toHaveProperty('Payment');
       expect(signedTypes).not.toHaveProperty('TransferWithAuthorization');
     });
+  });
+});
+
+describe('normalizeSignatureV', () => {
+  // A 65-byte signature (r=32, s=32, v=1) with v=0x00
+  const baseSig = '0x' + 'ab'.repeat(32) + 'cd'.repeat(32);
+
+  it('should normalize v=0 to v=27', () => {
+    const sig = (baseSig + '00') as Hex;
+    const result = normalizeSignatureV(sig);
+    expect(result).toBe(baseSig + '1b');
+  });
+
+  it('should normalize v=1 to v=28', () => {
+    const sig = (baseSig + '01') as Hex;
+    const result = normalizeSignatureV(sig);
+    expect(result).toBe(baseSig + '1c');
+  });
+
+  it('should pass through v=27 unchanged', () => {
+    const sig = (baseSig + '1b') as Hex;
+    const result = normalizeSignatureV(sig);
+    expect(result).toBe(sig);
+  });
+
+  it('should pass through v=28 unchanged', () => {
+    const sig = (baseSig + '1c') as Hex;
+    const result = normalizeSignatureV(sig);
+    expect(result).toBe(sig);
   });
 });

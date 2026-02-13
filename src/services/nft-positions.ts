@@ -8,8 +8,8 @@
  * Queries `balanceOf(address)` via RPC — no indexer needed.
  */
 
-import { createPublicClient, type Hex } from 'viem';
-import { getTransport, CHAINS, type SupportedChain } from '../config/chains.js';
+import { createPublicClient, http, type Hex } from 'viem';
+import { getRpcUrl, CHAINS, type SupportedChain } from '../config/chains.js';
 
 // ============================================================================
 // Types
@@ -83,7 +83,7 @@ export async function checkNFTPositions(
 
   const client = createPublicClient({
     chain: chainConfig.chain,
-    transport: getTransport(chain),
+    transport: http(getRpcUrl(chain)),
   });
 
   // Query all contracts in parallel

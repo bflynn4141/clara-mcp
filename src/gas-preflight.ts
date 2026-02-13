@@ -10,9 +10,9 @@
  * - requireGas() — throws ClaraError if the wallet can't afford the tx
  */
 
-import { createPublicClient, formatEther, type Hex, type PublicClient } from 'viem';
+import { createPublicClient, formatEther, http, type Hex, type PublicClient } from 'viem';
 import { estimateGas } from './para/gas.js';
-import { getTransport, CHAINS, type SupportedChain } from './config/chains.js';
+import { getRpcUrl, CHAINS, type SupportedChain } from './config/chains.js';
 import { ClaraError, ClaraErrorCode } from './errors.js';
 
 export interface GasPreflight {
@@ -47,7 +47,7 @@ export async function checkGasPreflight(
   const chainConfig = CHAINS[chain];
   const client = createPublicClient({
     chain: chainConfig.chain,
-    transport: getTransport(chain),
+    transport: http(getRpcUrl(chain)),
   });
 
   // 1. Get ETH balance
@@ -110,4 +110,34 @@ export async function requireGas(
   }
 
   return preflight;
+}
+
+/**
+ * Require that an address has contract code deployed.
+ *
+ * Prevents silent failures from AUDIT-001: EVM allows calldata to EOAs,
+ * so transactions to non-contract addresses succeed but do nothing.
+ * Call this before interacting with bounty/challenge clone contracts.
+ */
+export async function requireContract(
+  chain: SupportedChain,
+  address: Hex,
+  label?: string,
+): Promise<void> {
+  const chainConfig = CHAINS[chain];
+  const client = createPublicClient({
+    chain: chainConfig.chain,
+    transport: http(getRpcUrl(chain)),
+  });
+
+  const code = await client.getCode({ address });
+  if (!code || code === '0x' || code.length <= 2) {
+    const name = label || address.slice(0, 10) + '...';
+    throw new ClaraError(
+      ClaraErrorCode.NO_CONTRACT,
+      `No contract found at ${name} on ${chainConfig.name}.`,
+      `The address \`${address}\` has no deployed code. This may mean the wrong chain or address was used.`,
+      { address, chain },
+    );
+  }
 }

@@ -7,7 +7,6 @@
 
 import { z } from 'zod';
 import { setupWallet, getWalletStatus, logout } from '../para/client.js';
-import { clearQuickNodeAuth } from '../providers/quicknode-x402.js';
 import { formatSpendingSummary } from '../storage/spending.js';
 import { getSession, touchSession } from '../storage/session.js';
 import {
@@ -384,7 +383,6 @@ export async function handleLogoutRequest(
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
     await logout();
-    clearQuickNodeAuth();
 
     return {
       content: [{

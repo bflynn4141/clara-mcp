@@ -73,7 +73,7 @@ async function getEncryptionKey(): Promise<Buffer> {
   const storageDir = getStorageDir();
   const keyFile = getKeyFile();
 
-  await fs.mkdir(storageDir, { recursive: true });
+  await fs.mkdir(storageDir, { recursive: true, mode: 0o700 });
 
   try {
     const keyData = await fs.readFile(keyFile);
@@ -184,7 +184,7 @@ export async function saveSession(session: WalletSession): Promise<void> {
   const storageDir = getStorageDir();
   const sessionFile = getSessionFile();
 
-  await fs.mkdir(storageDir, { recursive: true });
+  await fs.mkdir(storageDir, { recursive: true, mode: 0o700 });
 
   // Update timestamps
   session.lastActiveAt = new Date().toISOString();

@@ -12,6 +12,7 @@ import { signAndSendTransaction } from '../para/transactions.js';
 import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress, toDataUri } from './work-helpers.js';
+import { requireContract } from '../gas-preflight.js';
 import { syncFromChain } from '../indexer/sync.js';
 import { getBountyByAddress } from '../indexer/queries.js';
 
@@ -64,6 +65,8 @@ export async function handleWorkSubmit(
   }
 
   try {
+    await requireContract('base', bountyAddress as Hex, 'bounty contract');
+
     // Encode proof as data URI if it's not already a URL
     const proofURI = proof.startsWith('http') || proof.startsWith('data:')
       ? proof

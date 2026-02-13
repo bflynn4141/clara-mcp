@@ -9,6 +9,7 @@ import {
   parseUnits,
   encodeFunctionData,
   createPublicClient,
+  http,
   type Hex,
 } from 'viem';
 import { signAndSendTransaction } from '../para/transactions.js';
@@ -16,7 +17,7 @@ import type { ToolContext, ToolResult } from '../middleware.js';
 import {
   CHAINS,
   getExplorerTxUrl,
-  getTransport,
+  getRpcUrl,
   isSupportedChain,
   type SupportedChain,
 } from '../config/chains.js';
@@ -82,7 +83,7 @@ async function isContract(address: string, chain: SupportedChain): Promise<boole
     const chainConfig = CHAINS[chain];
     const client = createPublicClient({
       chain: chainConfig.chain,
-      transport: getTransport(chain),
+      transport: http(getRpcUrl(chain)),
     });
 
     const code = await client.getCode({ address: address as Hex });
@@ -280,7 +281,7 @@ export async function handleSendRequest(
       // Simulate the ERC-20 transfer before signing
       const client = createPublicClient({
         chain: chainConfig.chain,
-        transport: getTransport(chainName),
+        transport: http(getRpcUrl(chainName)),
       });
       try {
         await client.call({
@@ -317,7 +318,7 @@ export async function handleSendRequest(
       // Simulate the native transfer before signing
       const client = createPublicClient({
         chain: chainConfig.chain,
-        transport: getTransport(chainName),
+        transport: http(getRpcUrl(chainName)),
       });
       try {
         await client.call({
@@ -346,7 +347,7 @@ export async function handleSendRequest(
     console.error(`[clara] Waiting for send confirmation: ${txHash}`);
     const publicClient = createPublicClient({
       chain: chainConfig.chain,
-      transport: getTransport(chainName),
+      transport: http(getRpcUrl(chainName)),
     });
 
     let receipt;

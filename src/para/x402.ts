@@ -13,7 +13,7 @@
  * @see https://x402.org for protocol specification
  */
 
-import { type Hex, encodePacked, keccak256, toHex, hexToBytes } from 'viem';
+import { type Hex, encodePacked, keccak256, toHex, hexToBytes, hexToNumber } from 'viem';
 import { randomBytes } from 'crypto';
 
 /**
@@ -22,6 +22,24 @@ import { randomBytes } from 'crypto';
 function createNonce(): Hex {
   const bytes = randomBytes(32);
   return ('0x' + bytes.toString('hex')) as Hex;
+}
+
+/**
+ * Normalize EIP-712 signature v-value to canonical form (27/28).
+ *
+ * Some signers (Para, smart contract wallets) return v=0/1 instead of
+ * the canonical v=27/28 expected by ecrecover and EIP-3009 verifiers.
+ * This silently breaks TransferWithAuthorization because the contract
+ * recovers the wrong address from the signature.
+ */
+export function normalizeSignatureV(sig: Hex): Hex {
+  const vByte = hexToNumber(('0x' + sig.slice(-2)) as Hex);
+  if (vByte < 27) {
+    const normalized = sig.slice(0, -2) + (vByte + 27).toString(16).padStart(2, '0');
+    console.error(`[x402] Normalized signature v: ${vByte} → ${vByte + 27}`);
+    return normalized as Hex;
+  }
+  return sig;
 }
 
 // Known token addresses
@@ -652,11 +670,12 @@ export class X402Client {
 
       console.error(`[x402] Signing v2 EIP-3009 with domain: ${tokenDomain.name} v${tokenDomain.version}`);
 
-      const signature = await this.signTypedData(
+      const rawSignature = await this.signTypedData(
         domain,
         TRANSFER_WITH_AUTHORIZATION_TYPES,
         authorization
       );
+      const signature = normalizeSignatureV(rawSignature);
 
       return {
         signature,
@@ -687,7 +706,8 @@ export class X402Client {
       paymentId: details.paymentId,
     };
 
-    const signature = await this.signTypedData(domain, X402_TYPES, value);
+    const rawSignature = await this.signTypedData(domain, X402_TYPES, value);
+    const signature = normalizeSignatureV(rawSignature);
     return { signature };
   }
 

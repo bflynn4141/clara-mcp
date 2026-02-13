@@ -12,6 +12,7 @@ import { signAndSendTransaction } from '../para/transactions.js';
 import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress, formatRawAmount } from './work-helpers.js';
+import { requireContract } from '../gas-preflight.js';
 import { syncFromChain } from '../indexer/sync.js';
 import { getBountyByAddress } from '../indexer/queries.js';
 import { formatContractError } from '../utils/contract-errors.js';
@@ -65,6 +66,8 @@ export async function handleWorkClaim(
   }
 
   try {
+    await requireContract('base', bountyAddress as Hex, 'bounty contract');
+
     // Look up bounty to show bond info
     const bounty = getBountyByAddress(bountyAddress);
     let workerBondInfo = '';

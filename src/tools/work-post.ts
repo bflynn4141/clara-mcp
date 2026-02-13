@@ -5,7 +5,7 @@
  * Handles ERC-20 approval + bounty creation in sequence.
  */
 
-import { encodeFunctionData, parseUnits, createPublicClient, type Hex } from 'viem';
+import { encodeFunctionData, parseUnits, createPublicClient, http, type Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
@@ -14,7 +14,7 @@ import {
   BOUNTY_FACTORY_ABI,
   ERC20_APPROVE_ABI,
 } from '../config/clara-contracts.js';
-import { getChainId, getExplorerTxUrl, getTransport } from '../config/chains.js';
+import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
 import { resolveToken } from '../config/tokens.js';
 import {
   toDataUri,
@@ -126,7 +126,7 @@ export async function handleWorkPost(
     // Get actual bond rate from factory (don't assume 10%)
     const publicClient = createPublicClient({
       chain: (await import('viem/chains')).base,
-      transport: getTransport('base'),
+      transport: http(getRpcUrl('base')),
     });
     
     let bondRateBps: bigint;

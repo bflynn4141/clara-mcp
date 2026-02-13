@@ -13,6 +13,7 @@ import { CHALLENGE_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress } from './work-helpers.js';
 import { formatPrizePool } from './challenge-helpers.js';
+import { requireContract } from '../gas-preflight.js';
 import { syncFromChain } from '../indexer/sync.js';
 import { getChallengeByAddress } from '../indexer/challenge-queries.js';
 
@@ -89,6 +90,8 @@ export async function handleChallengeClaim(
   }
 
   try {
+    await requireContract('base', challengeAddress as Hex, 'challenge contract');
+
     const data = encodeFunctionData({
       abi: CHALLENGE_ABI,
       functionName: 'claimPrize',
