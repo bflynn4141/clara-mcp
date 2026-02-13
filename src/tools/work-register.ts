@@ -10,12 +10,13 @@
  * 2. Upload to clara-proxy after getting agentId (rich, web-accessible)
  */
 
-import { encodeFunctionData } from 'viem';
+import { encodeFunctionData, createPublicClient, http, formatEther, type Hex } from 'viem';
+import { base } from 'viem/chains';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
 import { getBountyContracts, IDENTITY_REGISTRY_ABI } from '../config/clara-contracts.js';
-import { getChainId, getExplorerTxUrl } from '../config/chains.js';
+import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
 import {
   toDataUri,
   formatAddress,
@@ -23,6 +24,8 @@ import {
 } from './work-helpers.js';
 import { syncFromChain } from '../indexer/sync.js';
 import { getAgentByAddress } from '../indexer/queries.js';
+
+const MIN_GAS_ETH = 0.0003; // ~$0.01 on Base, enough for register tx
 
 // ─── ERC-8004 Registration File Types ────────────────────────────────
 
@@ -216,6 +219,36 @@ export async function handleWorkRegister(
     };
   }
 
+  // ─── Gas Pre-Check ───────────────────────────────────────────────
+  // Registration requires gas on Base. Check before attempting the tx
+  // so we can suggest wallet_sponsor_gas instead of a cryptic failure.
+  try {
+    const client = createPublicClient({ chain: base, transport: http(getRpcUrl('base')) });
+    const balance = await client.getBalance({ address: ctx.walletAddress as Hex });
+    const balanceEth = parseFloat(formatEther(balance));
+
+    if (balanceEth < MIN_GAS_ETH) {
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            '❌ **Not enough ETH on Base for gas**',
+            '',
+            `**Balance:** ${balanceEth.toFixed(6)} ETH`,
+            `**Needed:** ~${MIN_GAS_ETH} ETH (~$0.01)`,
+            '',
+            'Run `wallet_sponsor_gas` to get free gas for your first registration,',
+            'or send a small amount of ETH to your Base address.',
+          ].join('\n'),
+        }],
+        isError: true,
+      };
+    }
+  } catch (err) {
+    // Non-fatal — if we can't check balance, proceed and let the tx fail naturally
+    console.error(`[work_register] Gas pre-check failed: ${err}`);
+  }
+
   try {
     const contracts = getBountyContracts();
 
@@ -324,6 +357,9 @@ export async function handleWorkRegister(
 
     if (proxyUrl) {
       lines.push(`**Profile:** [${proxyUrl}](${proxyUrl})`);
+    } else if (agentId !== null) {
+      lines.push('⚠️ Profile upload to proxy failed — your agent is registered on-chain but not web-accessible yet.');
+      lines.push('Try `work_register` again to retry the upload.');
     }
 
     lines.push('');

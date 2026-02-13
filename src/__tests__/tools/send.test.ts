@@ -57,6 +57,7 @@ vi.mock('viem', async () => {
     createPublicClient: vi.fn(() => ({
       call: vi.fn().mockResolvedValue(undefined),
       getCode: vi.fn().mockResolvedValue('0x'),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
     })),
   };
 });
@@ -200,7 +201,7 @@ describe('Send Tool', () => {
       }, makeCtx());
 
       expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('Transaction sent');
+      expect(result.content[0].text).toContain('Transaction confirmed');
       expect(result.content[0].text).toContain('0.1');
       expect(result.content[0].text).toContain('ETH');
       expect(signAndSendTransaction).toHaveBeenCalledWith(
@@ -248,7 +249,7 @@ describe('Send Tool', () => {
       }, makeCtx());
 
       expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('Transaction sent');
+      expect(result.content[0].text).toContain('Transaction confirmed');
       expect(result.content[0].text).toContain('100');
       expect(result.content[0].text).toContain('USDC');
       expect(signAndSendTransaction).toHaveBeenCalledWith(

@@ -69,6 +69,17 @@ vi.mock('../../gas-preflight.js', () => ({
   checkGasPreflight: vi.fn(),
 }));
 
+// Mock viem's createPublicClient to prevent real RPC calls for receipt verification
+vi.mock('viem', async () => {
+  const actual = await vi.importActual('viem');
+  return {
+    ...actual,
+    createPublicClient: vi.fn(() => ({
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    })),
+  };
+});
+
 import { getSwapQuote, executeSwap } from '../../para/swap.js';
 import { signAndSendTransaction } from '../../para/transactions.js';
 
@@ -246,7 +257,7 @@ describe('Swap Tool', () => {
       }, makeCtx());
 
       expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('Swap Submitted');
+      expect(result.content[0].text).toContain('Swap Confirmed');
       expect(result.content[0].text).toContain('0xabc123');
     });
 

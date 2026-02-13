@@ -231,34 +231,32 @@ describe('work_reputation', () => {
     });
   });
 
-  describe('Agent Not Found', () => {
-    it('returns error when address has no registered agent', async () => {
+  describe('Agent Not Found (Graceful Degradation)', () => {
+    it('returns success with "not registered" when address has no agent', async () => {
       setupNoAgentMocks();
 
       const result = await handleWorkReputation({ address: TEST_ADDRESS });
 
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeUndefined();
       const text = result.content[0].text;
-      expect(text).toContain('Agent not found');
+      expect(text).toContain('Not registered as an agent');
       expect(text).toContain('work_register');
     });
 
-    it('includes the formatted address in the error', async () => {
+    it('includes the formatted address in the output', async () => {
       setupNoAgentMocks();
 
       const result = await handleWorkReputation({ address: TEST_ADDRESS });
       expect(result.content[0].text).toContain('0xabcd...ef12');
     });
 
-    it('returns error when agentId not found in index', async () => {
-      // When agentId 999 is not in the local index, getAgentByAgentId returns null
-      // and the tool returns an error
+    it('returns success with "not registered" when agentId not found', async () => {
       vi.mocked(getAgentByAgentId).mockReturnValue(null);
 
       const result = await handleWorkReputation({ agentId: 999 });
 
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Agent not found');
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Not registered as an agent');
     });
   });
 
@@ -290,13 +288,12 @@ describe('work_reputation', () => {
       expect(result.isError).toBeUndefined();
     });
 
-    it('handles getReputationSummary returning null (agent not indexed)', async () => {
-      // When agentId is not found in the index, the tool returns an error
+    it('handles agent not in index with graceful degradation', async () => {
       vi.mocked(getAgentByAgentId).mockReturnValue(null);
 
       const result = await handleWorkReputation({ agentId: 1 });
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Agent not found');
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Not registered as an agent');
     });
   });
 

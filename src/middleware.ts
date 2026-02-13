@@ -10,7 +10,7 @@
  * eliminating the getSession()/touchSession() boilerplate from every handler.
  */
 
-import { getSession, touchSession } from './storage/session.js';
+import { getSession, getSessionStatus, touchSession } from './storage/session.js';
 import { ClaraError, ClaraErrorCode, formatClaraError } from './errors.js';
 import { checkGasPreflight, requireGas } from './gas-preflight.js';
 import { getOrCreateSessionKey, getCurrentSessionKey } from './auth/session-key.js';
@@ -106,10 +106,16 @@ export function wrapTool(
       if (cfg.requiresAuth) {
         const session = await getSession();
         if (!session?.authenticated || !session.address) {
+          const status = getSessionStatus();
+          const hints: Record<string, string> = {
+            missing: 'Run `wallet_setup` to connect your wallet.',
+            expired: 'Your session expired after 7 days of inactivity. Run `wallet_setup` to reconnect (same wallet, same address).',
+            corrupt: 'Your session file was corrupted and has been removed. Run `wallet_setup` to reconnect (same wallet, same address).',
+          };
           throw new ClaraError(
             ClaraErrorCode.NO_SESSION,
-            'No wallet session found.',
-            'Run wallet_setup first to connect your wallet.',
+            status === 'missing' ? 'No wallet configured.' : `Wallet session ${status}.`,
+            hints[status] || 'Run `wallet_setup` to connect your wallet.',
           );
         }
 

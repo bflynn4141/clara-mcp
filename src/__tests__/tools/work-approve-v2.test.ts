@@ -22,6 +22,11 @@ vi.mock('../../indexer/sync.js', () => ({
   syncFromChain: vi.fn(),
 }));
 
+// Mock gas-preflight (requireContract makes real RPC calls)
+vi.mock('../../gas-preflight.js', () => ({
+  requireContract: vi.fn(),
+}));
+
 import { signAndSendTransaction } from '../../para/transactions.js';
 import { syncFromChain } from '../../indexer/sync.js';
 

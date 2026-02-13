@@ -485,6 +485,21 @@ function validateConfig(): string[] {
     if (!process.env.HERD_API_URL) errors.push('HERD_ENABLED=true but HERD_API_URL not set');
     if (!process.env.HERD_API_KEY) errors.push('HERD_ENABLED=true but HERD_API_KEY not set');
   }
+
+  // AUDIT-001: CLARA_NETWORK=testnet causes Sepolia addresses on Base mainnet
+  const network = process.env.CLARA_NETWORK;
+  if (network && network !== 'mainnet') {
+    errors.push(
+      `CLARA_NETWORK="${network}" — bounty/challenge tools will target wrong contracts! ` +
+      'Remove this env var or set to "mainnet". See docs/AUDIT-001-CHAIN-MISMATCH.md'
+    );
+  }
+
+  // Optional but helpful warnings for features that will fail without them
+  if (!process.env.ZERION_API_KEY) {
+    errors.push('Missing ZERION_API_KEY — wallet_history will not work');
+  }
+
   return errors;
 }
 

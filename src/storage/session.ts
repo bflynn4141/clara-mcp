@@ -129,10 +129,31 @@ async function decrypt(data: Buffer): Promise<string> {
 }
 
 /**
+ * Session load status — explains WHY getSession returned null.
+ * Middleware uses this to give actionable error messages.
+ */
+export type SessionStatus =
+  | 'ok'
+  | 'missing'       // No session file — fresh install
+  | 'expired'       // Session older than 7 days
+  | 'corrupt';      // File exists but can't be decrypted/parsed
+
+let lastSessionStatus: SessionStatus = 'missing';
+
+/**
+ * Get the status of the last getSession() call.
+ * Use this after getSession() returns null to determine WHY.
+ */
+export function getSessionStatus(): SessionStatus {
+  return lastSessionStatus;
+}
+
+/**
  * Get current wallet session
  *
  * Returns cached session if available, otherwise reads from disk.
- * Returns null if no session exists or decryption fails.
+ * Returns null if no session exists, is expired, or is corrupt.
+ * Call getSessionStatus() after a null return for the reason.
  */
 export async function getSession(): Promise<WalletSession | null> {
   if (cachedSession) {
@@ -144,14 +165,25 @@ export async function getSession(): Promise<WalletSession | null> {
       if (daysSinceActive > 7) {
         console.error('[clara] Session expired after 7 days inactivity, clearing...');
         await clearSession();
+        lastSessionStatus = 'expired';
         return null;
       }
     }
+    lastSessionStatus = 'ok';
     return cachedSession;
   }
 
+  // Check if session file exists
+  const sessionFile = getSessionFile();
   try {
-    const sessionFile = getSessionFile();
+    await fs.access(sessionFile);
+  } catch {
+    lastSessionStatus = 'missing';
+    return null;
+  }
+
+  // File exists — try to decrypt
+  try {
     const encryptedData = await fs.readFile(sessionFile);
     const decrypted = await decrypt(encryptedData);
     const session: WalletSession = JSON.parse(decrypted);
@@ -164,13 +196,20 @@ export async function getSession(): Promise<WalletSession | null> {
       if (daysSinceActive > 7) {
         console.error('[clara] Session expired after 7 days inactivity, clearing...');
         await clearSession();
+        lastSessionStatus = 'expired';
         return null;
       }
     }
 
     cachedSession = session;
+    lastSessionStatus = 'ok';
     return cachedSession;
-  } catch {
+  } catch (err) {
+    // File exists but can't be read/decrypted — corrupt
+    console.error(`[clara] Session file corrupt or key mismatch: ${err instanceof Error ? err.message : err}`);
+    console.error('[clara] Removing corrupt session — wallet_setup will restore access');
+    await clearSession();
+    lastSessionStatus = 'corrupt';
     return null;
   }
 }

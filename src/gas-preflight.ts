@@ -96,10 +96,13 @@ export async function requireGas(
   const preflight = await checkGasPreflight(chain, address, options);
 
   if (!preflight.canAfford) {
+    const sponsorHint = chain === 'base' && preflight.ethBalance === 0n
+      ? ' Run `wallet_sponsor_gas` for free gas on your first transaction.'
+      : '';
     throw new ClaraError(
       ClaraErrorCode.INSUFFICIENT_GAS,
       `Not enough ${CHAINS[chain].nativeSymbol} for this transaction.`,
-      `Need ~${formatEther(preflight.totalNeeded)} ${CHAINS[chain].nativeSymbol} (${formatEther(preflight.txValue)} value + ${formatEther(preflight.estimatedGasCost)} gas). Have: ${formatEther(preflight.ethBalance)} ${CHAINS[chain].nativeSymbol}.`,
+      `Need ~${formatEther(preflight.totalNeeded)} ${CHAINS[chain].nativeSymbol} (${formatEther(preflight.txValue)} value + ${formatEther(preflight.estimatedGasCost)} gas). Have: ${formatEther(preflight.ethBalance)} ${CHAINS[chain].nativeSymbol}.${sponsorHint}`,
       {
         ethBalance: formatEther(preflight.ethBalance),
         gasNeeded: formatEther(preflight.estimatedGasCost),
