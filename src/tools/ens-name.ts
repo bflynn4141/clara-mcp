@@ -8,6 +8,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult, ToolContext } from '../middleware.js';
+import { proxyFetch } from '../auth/proxy-fetch.js';
 
 // ─── Config ──────────────────────────────────────────────
 
@@ -92,18 +93,19 @@ export async function handleRegisterNameRequest(
   }
 
   try {
-    const response = await fetch(`${GATEWAY_BASE}/ens/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Clara-Address': ctx.walletAddress,
+    const response = await proxyFetch(
+      `${GATEWAY_BASE}/ens/register`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          address: ctx.walletAddress,
+          agentId: agentId || null,
+        }),
       },
-      body: JSON.stringify({
-        name,
-        address: ctx.walletAddress,
-        agentId: agentId || null,
-      }),
-    });
+      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
+    );
 
     const result = (await response.json()) as Record<string, unknown>;
 
