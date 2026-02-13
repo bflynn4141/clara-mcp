@@ -26,5 +26,5 @@ base = "${BASE_RPC_URL}"
 base_sepolia = "https://sepolia.base.org"
 
 [etherscan]
-base = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api" }
-base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
+base = { key = "${BASESCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=8453" }
+base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=84532" }

@@ -627,7 +627,7 @@ const CHALLENGE_CONTRACTS: Record<ClaraNetwork, ChallengeContracts> = {
     challengeFactory: '0x76B61D018Dc6697954cEDc7C0854b66e942783D8',  // Base Sepolia — deployed 2026-02-10
   },
   mainnet: {
-    challengeFactory: '0x0000000000000000000000000000000000000000',  // Placeholder — deploy on Base
+    challengeFactory: '0x4EAfC31EE6b06bBe71e3c2f66AFE9429f8554c0d',  // Base mainnet — deployed 2026-02-13
   },
 };
 
@@ -640,7 +640,7 @@ export function getChallengeContracts(): ChallengeContracts {
 /** First block to scan for ChallengeCreated events, per network */
 const CHALLENGE_FACTORY_DEPLOY_BLOCKS: Record<ClaraNetwork, bigint> = {
   testnet: 37504827n,   // Base Sepolia — ChallengeFactory deployed 2026-02-10
-  mainnet: 0n,   // Placeholder — set after deployment
+  mainnet: 42040783n,   // Base mainnet — ChallengeFactory deployed 2026-02-13
 };
 
 export const CHALLENGE_FACTORY_DEPLOY_BLOCK = CHALLENGE_FACTORY_DEPLOY_BLOCKS[getClaraNetwork()];
