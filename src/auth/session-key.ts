@@ -111,7 +111,9 @@ export async function getOrCreateSessionKey(
       throw new Error(`Failed to get server nonce: ${nonceResp.status}`);
     }
     const nonceData = await nonceResp.json() as { nonce: string };
-    nonce = nonceData.nonce;
+    // SIWE nonces must be alphanumeric (EIP-4361). Strip hyphens in case
+    // the proxy returns a UUID format like "b4400d23-937e-4618-..."
+    nonce = nonceData.nonce.replace(/-/g, '');
   } else {
     nonce = crypto.randomBytes(16).toString('hex');
   }
