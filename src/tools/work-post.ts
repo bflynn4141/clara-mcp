@@ -136,7 +136,8 @@ export async function handleWorkPost(
         abi: BOUNTY_FACTORY_ABI,
         functionName: 'bondRate',
       }) as bigint;
-    } catch {
+    } catch (err) {
+      console.error('[work_post] Failed to read bondRate from factory, using 10% fallback:', err instanceof Error ? err.message : err);
       bondRateBps = 1000n; // Fallback to 10%
     }
 

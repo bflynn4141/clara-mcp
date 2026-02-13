@@ -128,8 +128,9 @@ export function parsePayoutSplit(split: string | undefined, winnerCount: number)
     if (Array.isArray(parsed) && parsed.every((v: unknown) => typeof v === 'number')) {
       return parsed;
     }
-  } catch {
-    // fall through
+  } catch (err) {
+    // JSON parse failed — fall through to default split
+    console.warn('[challenge] Failed to parse prize split JSON:', err instanceof Error ? err.message : err);
   }
 
   // Default to top3

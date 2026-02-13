@@ -29,7 +29,12 @@ export function getLocalAgentId(): number | null {
   try {
     const data = JSON.parse(readFileSync(AGENT_FILE, 'utf-8')) as LocalAgentData;
     return data.agentId ?? null;
-  } catch {
+  } catch (err) {
+    // agent.json doesn't exist or is unreadable — normal on first run
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code && code !== 'ENOENT') {
+      console.warn('[work_helpers] Failed to read agent.json:', err instanceof Error ? err.message : err);
+    }
     return null;
   }
 }
@@ -181,7 +186,8 @@ export function parseTaskURI(taskURI: string): Record<string, unknown> | null {
     }
     // Try as plain JSON
     return JSON.parse(taskURI);
-  } catch {
+  } catch (err) {
+    console.warn('[work_helpers] Failed to parse taskURI:', err instanceof Error ? err.message : err);
     return null;
   }
 }

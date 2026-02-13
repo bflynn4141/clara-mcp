@@ -96,8 +96,8 @@ export async function handleWorkProfile(
         services = (metadata.services as string[]) || [];
         registeredAt = metadata.registeredAt as string | undefined;
       }
-    } catch {
-      // Ignore parse errors — services/registeredAt are optional
+    } catch (err) {
+      console.warn('[work_profile] Failed to parse agent URI metadata:', err instanceof Error ? err.message : err);
     }
 
     // Read cached reputation from index

@@ -408,8 +408,9 @@ export async function handleCallRequest(
           simulation.returnData = callResult.data;
           // TODO: Decode return data using func.outputs
         }
-      } catch {
-        // Call failed but gas estimate succeeded - tx might still work
+      } catch (err) {
+        // Call simulation failed but gas estimate succeeded — tx might still work
+        console.warn('[call] Simulation failed (may still succeed on-chain):', err instanceof Error ? err.message : err);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

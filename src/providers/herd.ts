@@ -459,8 +459,9 @@ async function callHerdTool<T>(
           // Success - reset failure counter
           consecutiveFailures = 0;
           return { success: true, data };
-        } catch {
-          // Some tools might return plain text
+        } catch (err) {
+          // Response wasn't JSON — some tools return plain text
+          console.warn(`[herd] Non-JSON response from ${toolName}, treating as text:`, err instanceof Error ? err.message : err);
           consecutiveFailures = 0;
           return { success: true, data: text as unknown as T };
         }

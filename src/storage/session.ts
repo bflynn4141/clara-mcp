@@ -79,8 +79,9 @@ async function getEncryptionKey(): Promise<Buffer> {
     const keyData = await fs.readFile(keyFile);
     encryptionKey = keyData;
     return encryptionKey;
-  } catch {
-    // Generate new key
+  } catch (err) {
+    // Key file doesn't exist or is unreadable — generate new key
+    console.error('[clara] No existing encryption key, generating new one:', err instanceof Error ? err.message : err);
     encryptionKey = crypto.randomBytes(32);
     await fs.writeFile(keyFile, encryptionKey, { mode: 0o600 });
     return encryptionKey;
@@ -177,7 +178,12 @@ export async function getSession(): Promise<WalletSession | null> {
   const sessionFile = getSessionFile();
   try {
     await fs.access(sessionFile);
-  } catch {
+  } catch (err) {
+    // File doesn't exist (normal) or permissions error (problem)
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code && code !== 'ENOENT') {
+      console.error(`[clara] Session file access error (${code}):`, err instanceof Error ? err.message : err);
+    }
     lastSessionStatus = 'missing';
     return null;
   }
@@ -268,8 +274,12 @@ export async function clearSession(): Promise<void> {
   try {
     const sessionFile = getSessionFile();
     await fs.unlink(sessionFile);
-  } catch {
-    // File doesn't exist, that's fine
+  } catch (err) {
+    // File doesn't exist (fine) or permissions error (problem)
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code && code !== 'ENOENT') {
+      console.error(`[clara] Failed to remove session file (${code}):`, err instanceof Error ? err.message : err);
+    }
   }
 }
 

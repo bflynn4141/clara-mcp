@@ -55,8 +55,8 @@ export async function handleWorkFind(
   // Ensure index is up to date
   try {
     await syncFromChain();
-  } catch {
-    // Continue with potentially stale data
+  } catch (err) {
+    console.warn('[work_find] Index sync failed, using potentially stale data:', err instanceof Error ? err.message : err);
   }
 
   const skill = args.skill as string | undefined;

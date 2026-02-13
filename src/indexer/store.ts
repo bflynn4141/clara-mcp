@@ -100,8 +100,8 @@ export function loadIndex(): BountyIndex {
       agentsById: index.agentsById ?? rebuildAgentsById(agents),
       challenges: index.challenges ?? {},
     };
-  } catch {
-    console.error('[indexer] Corrupt bounties.json, resetting index');
+  } catch (err) {
+    console.error('[indexer] Corrupt bounties.json, resetting index:', err instanceof Error ? err.message : err);
     return defaultIndex();
   }
 }

@@ -164,8 +164,8 @@ export async function checkAvailability(
       if (ownerAddr !== '0x0000000000000000000000000000000000000000') {
         result.currentOwner = ownerAddr;
       }
-    } catch {
-      // Owner lookup failed — non-critical
+    } catch (err) {
+      console.warn(`[ens] Owner lookup failed for ${name}.eth:`, err instanceof Error ? err.message : err);
     }
 
     // Get resolved address from PublicResolver
@@ -180,8 +180,8 @@ export async function checkAvailability(
       if (resolvedAddr !== '0x0000000000000000000000000000000000000000') {
         result.resolvedAddress = resolvedAddr;
       }
-    } catch {
-      // Resolution failed — name may not have a resolver set
+    } catch (err) {
+      console.warn(`[ens] Address resolution failed for ${name}.eth (may not have a resolver):`, err instanceof Error ? err.message : err);
     }
   }
 

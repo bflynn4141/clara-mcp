@@ -111,8 +111,8 @@ export async function checkNFTPositions(
           return position;
         }
         return null;
-      } catch {
-        // Contract may not be ERC-721, or call reverted — skip silently
+      } catch (err) {
+        console.warn(`[nft] Failed to check NFT position at ${contract.address}:`, err instanceof Error ? err.message : err);
         return null;
       }
     })

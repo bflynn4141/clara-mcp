@@ -251,8 +251,8 @@ export async function handleApprovalsRequest(
                 isUnlimited: allowance >= MAX_UINT256 / 2n,
               });
             }
-          } catch {
-            // Skip failed reads (some tokens may not exist on chain)
+          } catch (err) {
+            console.warn(`[approvals] Failed to read allowance for ${token.symbol} / ${spender.name}:`, err instanceof Error ? err.message : err);
           }
         }
       }

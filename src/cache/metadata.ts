@@ -322,8 +322,8 @@ function getFileCacheSize(): number {
       const stat = statSync(join(config.cacheDir, file));
       total += stat.size;
     }
-  } catch {
-    // Ignore errors
+  } catch (err) {
+    console.warn('[cache] Failed to calculate cache size:', err instanceof Error ? err.message : err);
   }
   return total;
 }

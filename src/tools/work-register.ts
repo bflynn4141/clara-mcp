@@ -331,8 +331,9 @@ export async function handleWorkRegister(
           }
         }
       }
-    } catch {
+    } catch (err) {
       // Non-fatal — the registration tx succeeded, agentId can be recovered later
+      console.warn('[work_register] Post-registration sync/upload failed:', err instanceof Error ? err.message : err);
     }
 
     // ─── Build success response ─────────────────────────────────────

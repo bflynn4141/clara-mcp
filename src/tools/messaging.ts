@@ -515,7 +515,8 @@ async function fetchThread(
     lines.push('──────────────────────────────────────────────────');
 
     return lines.join('\n');
-  } catch {
+  } catch (err) {
+    console.error('[messaging] Failed to render thread:', err instanceof Error ? err.message : err);
     return null;
   }
 }

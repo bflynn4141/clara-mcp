@@ -88,7 +88,8 @@ async function isContract(address: string, chain: SupportedChain): Promise<boole
 
     const code = await client.getCode({ address: address as Hex });
     return code !== undefined && code !== '0x' && code.length > 2;
-  } catch {
+  } catch (err) {
+    console.error(`[send] isContract check failed for ${address} on ${chain}:`, err instanceof Error ? err.message : err);
     return false;
   }
 }

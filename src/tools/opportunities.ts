@@ -101,8 +101,8 @@ async function resolveTokenAddress(
     if (match) {
       return { address: match.address, walletAddress };
     }
-  } catch {
-    // Silent failure — auto-resolve is best-effort
+  } catch (err) {
+    console.warn('[opportunities] Token auto-resolve failed:', err instanceof Error ? err.message : err);
   }
 
   return undefined;
@@ -117,7 +117,8 @@ async function resolveWalletAddress(): Promise<string | undefined> {
     const { getSession } = await import('../storage/session.js');
     const session = await getSession();
     return session?.address || undefined;
-  } catch {
+  } catch (err) {
+    console.warn('[opportunities] Failed to resolve wallet address from session:', err instanceof Error ? err.message : err);
     return undefined;
   }
 }
@@ -305,8 +306,8 @@ export async function handleOpportunitiesRequest(
             }
           }
         }
-      } catch {
-        // Silent — CLARA staking is supplemental
+      } catch (err) {
+        console.warn('[opportunities] CLARA staking data fetch failed:', err instanceof Error ? err.message : err);
       }
     }
 

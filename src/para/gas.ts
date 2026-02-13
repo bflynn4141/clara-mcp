@@ -103,8 +103,9 @@ async function estimatePriorityFee(
             }
           }
         }
-      } catch {
-        // Skip blocks that fail to fetch
+      } catch (err) {
+        // Skip blocks that fail to fetch — log for debugging RPC issues
+        console.warn(`[gas] Failed to fetch block for gas estimation:`, err instanceof Error ? err.message : err);
         continue;
       }
     }
