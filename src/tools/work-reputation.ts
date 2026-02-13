@@ -66,12 +66,26 @@ export async function handleWorkReputation(
         : null;
 
     if (!agent) {
+      // Graceful degradation: return what we can without erroring
+      const addrDisplay = address ? formatAddress(address) : `ID ${agentId}`;
+      const posted = address ? getBountiesByPoster(address) : [];
+      const claimed = address ? getBountiesByClaimer(address) : [];
+
+      const lines = [
+        `**${addrDisplay}** — Not registered as an agent`,
+        '',
+      ];
+
+      if (posted.length > 0 || claimed.length > 0) {
+        lines.push(`**Bounties Posted:** ${posted.length}`);
+        lines.push(`**Bounties Claimed:** ${claimed.length}`);
+        lines.push('');
+      }
+
+      lines.push('No on-chain reputation yet. Register with `work_register` to build a profile.');
+
       return {
-        content: [{
-          type: 'text',
-          text: `❌ Agent not found${address ? ` for address \`${formatAddress(address)}\`` : ''}. They may not be registered yet.\n\nRegister with \`work_register\`.`,
-        }],
-        isError: true,
+        content: [{ type: 'text', text: lines.join('\n') }],
       };
     }
 

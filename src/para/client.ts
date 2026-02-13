@@ -289,11 +289,14 @@ export async function setupWallet(email?: string): Promise<SetupResult> {
   }
 
   const data = await response.json() as {
+    id?: string;
+    address?: string;
     wallet?: { id: string; address: string };
     wallets?: Array<{ id: string; address: string }>;
   };
 
-  const wallet = data.wallet || data.wallets?.[0];
+  // Proxy may return the wallet object directly (flat) or nested under .wallet/.wallets
+  const wallet = data.wallet || data.wallets?.[0] || (data.id && data.address ? { id: data.id, address: data.address } : null);
   if (!wallet) {
     throw new Error('No wallet returned from API');
   }
