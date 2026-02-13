@@ -25,6 +25,8 @@ import {
 } from './work-helpers.js';
 import { syncFromChain } from '../indexer/sync.js';
 import { getBountyByTxHash } from '../indexer/queries.js';
+import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
+import { requireContract } from '../gas-preflight.js';
 
 export const workPostToolDefinition: Tool = {
   name: 'work_post',
@@ -123,12 +125,15 @@ export async function handleWorkPost(
     const amountWei = parseUnits(amount, token.decimals);
     const chainId = getChainId('base');
 
+    // Verify factory contract exists on-chain (AUDIT-001 prevention)
+    await requireContract('base', contracts.bountyFactory as Hex, 'bounty factory');
+
     // Get actual bond rate from factory (don't assume 10%)
     const publicClient = createPublicClient({
       chain: (await import('viem/chains')).base,
       transport: http(getRpcUrl('base')),
     });
-    
+
     let bondRateBps: bigint;
     try {
       bondRateBps = await publicClient.readContract({
@@ -139,6 +144,23 @@ export async function handleWorkPost(
     } catch (err) {
       console.error('[work_post] Failed to read bondRate from factory, using 10% fallback:', err instanceof Error ? err.message : err);
       bondRateBps = 1000n; // Fallback to 10%
+    }
+
+    // Check spending limits (stablecoins have 1:1 USD value)
+    const STABLECOINS = ['USDC', 'USDT', 'DAI'];
+    const posterBondAmount = (parseFloat(amount) * Number(bondRateBps)) / 10000;
+    const totalCostFloat = parseFloat(amount) + posterBondAmount;
+    if (STABLECOINS.includes(token.symbol.toUpperCase())) {
+      const spendCheck = checkSpendingLimits(totalCostFloat.toFixed(2));
+      if (!spendCheck.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text: `🛑 **Bounty blocked by spending limits**\n\n${spendCheck.reason}\n\nTotal cost: ${totalCostFloat.toFixed(2)} ${token.symbol} (${amount} escrow + ${posterBondAmount.toFixed(2)} bond)\n\nUse \`wallet_spending_limits\` to view or adjust your limits.`,
+          }],
+          isError: true,
+        };
+      }
     }
 
     // Step 1: ERC-20 approve (escrow + poster bond)
@@ -212,10 +234,9 @@ export async function handleWorkPost(
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
-    // Calculate poster bond for display (using actual bond rate from contract)
+    // Bond rate display (variables already computed above for spending check)
     const bondRatePercent = Number(bondRateBps) / 100;
-    const posterBondAmount = (parseFloat(amount) * Number(bondRateBps)) / 10000;
-    const totalCost = parseFloat(amount) + posterBondAmount;
+    const totalCost = totalCostFloat;
 
     const lines = [
       '✅ **Bounty Created!**',
@@ -237,6 +258,20 @@ export async function handleWorkPost(
     lines.push(`**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`);
     lines.push('');
     lines.push('Funds + bond are locked in escrow. Bond is returned on approval/cancellation. Use `work_cancel` to refund if unclaimed.');
+
+    // Record spending for limit tracking (stablecoins only)
+    if (STABLECOINS.includes(token.symbol.toUpperCase())) {
+      recordSpending({
+        timestamp: new Date().toISOString(),
+        amountUsd: totalCost.toFixed(2),
+        recipient: bountyAddress || contracts.bountyFactory,
+        description: `Bounty: ${taskSummary.slice(0, 60)} (${amount} + ${posterBondAmount.toFixed(2)} bond ${token.symbol})`,
+        url: '',
+        chainId,
+        txHash: result.txHash,
+        paymentId: `bounty-${result.txHash.slice(0, 10)}`,
+      });
+    }
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],

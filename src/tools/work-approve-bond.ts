@@ -15,6 +15,7 @@ import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
 import { formatAddress, formatRawAmount } from './work-helpers.js';
 import { formatContractError } from '../utils/contract-errors.js';
 import { requireContract } from '../gas-preflight.js';
+import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
 
 export const workApproveBondToolDefinition: Tool = {
   name: 'work_approve_bond',
@@ -91,6 +92,32 @@ export async function handleWorkApproveBond(
     // Format for display
     const formattedAmount = formatRawAmount(approveAmount.toString(), token);
 
+    // Check spending limits for worker bond (stablecoins only)
+    // Bond is locked on claim and returned on approval — still a real spend risk
+    const STABLECOIN_ADDRESSES = new Set([
+      '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC on Base
+      '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2', // USDT on Base
+      '0x50c5725949a6f0c72e6c4a641f24049a917db0cb', // DAI on Base
+    ]);
+    if (STABLECOIN_ADDRESSES.has((token as string).toLowerCase())) {
+      // For 6-decimal tokens (USDC/USDT), divide by 1e6; for 18-decimal (DAI), divide by 1e18
+      const isDAI = (token as string).toLowerCase() === '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
+      const decimals = isDAI ? 18 : 6;
+      const estimatedUsd = Number(approveAmount) / (10 ** decimals);
+      if (estimatedUsd > 0) {
+        const spendCheck = checkSpendingLimits(estimatedUsd.toFixed(2));
+        if (!spendCheck.allowed) {
+          return {
+            content: [{
+              type: 'text',
+              text: `🛑 **Bond approval blocked by spending limits**\n\n${spendCheck.reason}\n\nBond amount: ~$${estimatedUsd.toFixed(2)}\n\nUse \`wallet_spending_limits\` to view or adjust your limits.`,
+            }],
+            isError: true,
+          };
+        }
+      }
+    }
+
     // Encode approval
     const data = encodeFunctionData({
       abi: ERC20_APPROVE_ABI,
@@ -106,6 +133,25 @@ export async function handleWorkApproveBond(
     });
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
+
+    // Record spending for bond approval (stablecoins only)
+    if (STABLECOIN_ADDRESSES.has((token as string).toLowerCase())) {
+      const isDAI = (token as string).toLowerCase() === '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
+      const decimals = isDAI ? 18 : 6;
+      const estimatedUsd = Number(approveAmount) / (10 ** decimals);
+      if (estimatedUsd > 0) {
+        recordSpending({
+          timestamp: new Date().toISOString(),
+          amountUsd: estimatedUsd.toFixed(2),
+          recipient: bountyAddress,
+          description: `Worker bond approval for bounty ${formatAddress(bountyAddress)}`,
+          url: '',
+          chainId: getChainId('base'),
+          txHash: result.txHash,
+          paymentId: `bond-${result.txHash.slice(0, 10)}`,
+        });
+      }
+    }
 
     return {
       content: [{

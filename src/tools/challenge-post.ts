@@ -25,6 +25,8 @@ import {
 } from './work-helpers.js';
 import { parsePayoutSplit, formatPayoutBreakdown } from './challenge-helpers.js';
 import { syncFromChain } from '../indexer/sync.js';
+import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
+import { requireContract } from '../gas-preflight.js';
 
 export const challengePostToolDefinition: Tool = {
   name: 'challenge_post',
@@ -166,6 +168,26 @@ export async function handleChallengePost(
     const prizeWei = parseUnits(prizePool, token.decimals);
     const chainId = getChainId('base');
 
+    // Verify factory contract exists on-chain (AUDIT-001 prevention)
+    await requireContract('base', contracts.challengeFactory as Hex, 'challenge factory');
+
+    // Check spending limits (stablecoins have 1:1 USD value)
+    const STABLECOINS = ['USDC', 'USDT', 'DAI'];
+    const posterBondAmount = (parseFloat(prizePool) * 500) / 10000; // 5% bond
+    const totalCostFloat = parseFloat(prizePool) + posterBondAmount;
+    if (STABLECOINS.includes(token.symbol.toUpperCase())) {
+      const spendCheck = checkSpendingLimits(totalCostFloat.toFixed(2));
+      if (!spendCheck.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text: `🛑 **Challenge blocked by spending limits**\n\n${spendCheck.reason}\n\nTotal cost: ${totalCostFloat.toFixed(2)} ${token.symbol} (${prizePool} prize + ${posterBondAmount.toFixed(2)} bond)\n\nUse \`wallet_spending_limits\` to view or adjust your limits.`,
+          }],
+          isError: true,
+        };
+      }
+    }
+
     // Compute hashes
     const evalConfigHash = evalConfigJSON
       ? keccak256(toBytes(evalConfigJSON))
@@ -246,8 +268,8 @@ export async function handleChallengePost(
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
-    const posterBondAmount = (parseFloat(prizePool) * 500) / 10000;
-    const totalCost = parseFloat(prizePool) + posterBondAmount;
+    // Bond amount and total already computed above for spending check
+    const totalCost = totalCostFloat;
     const payoutStr = formatPayoutBreakdown(payoutBps, prizeWei.toString(), token.address);
 
     const lines = [
@@ -268,6 +290,20 @@ export async function handleChallengePost(
       '',
       'Prize pool + bond are locked in escrow. Post scores before the scoring deadline.',
     ];
+
+    // Record spending for limit tracking (stablecoins only)
+    if (STABLECOINS.includes(token.symbol.toUpperCase())) {
+      recordSpending({
+        timestamp: new Date().toISOString(),
+        amountUsd: totalCost.toFixed(2),
+        recipient: contracts.challengeFactory,
+        description: `Challenge: ${problemStatement.slice(0, 60)} (${prizePool} + ${posterBondAmount.toFixed(2)} bond ${token.symbol})`,
+        url: '',
+        chainId,
+        txHash: result.txHash,
+        paymentId: `challenge-${result.txHash.slice(0, 10)}`,
+      });
+    }
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],
