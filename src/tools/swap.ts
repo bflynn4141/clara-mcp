@@ -11,7 +11,7 @@
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { createPublicClient, http, encodeFunctionData, type Hex } from 'viem';
+import { createPublicClient, encodeFunctionData, type Hex } from 'viem';
 import {
   getSwapQuote,
   executeSwap,
@@ -22,7 +22,7 @@ import {
 } from '../para/swap.js';
 import { signAndSendTransaction } from '../para/transactions.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
-import { type SupportedChain, isSupportedChain, getChainId, getRpcUrl, CHAINS } from '../config/chains.js';
+import { type SupportedChain, isSupportedChain, getChainId, getTransport, CHAINS } from '../config/chains.js';
 import { getProviderRegistry, isHerdEnabled } from '../providers/index.js';
 import {
   cacheQuote,
@@ -442,7 +442,7 @@ export async function handleSwapRequest(
       const viemChain = CHAINS[chain].chain;
       const simClient = createPublicClient({
         chain: viemChain,
-        transport: http(getRpcUrl(chain)),
+        transport: getTransport(chain),
       });
       try {
         await simClient.call({
@@ -502,11 +502,41 @@ export async function handleSwapRequest(
     const swapResult = await executeSwap(quote, chain);
     txHashes.push(swapResult.txHash);
 
+    // Wait for transaction confirmation and verify success
+    console.error(`[clara] Waiting for swap confirmation: ${swapResult.txHash}`);
+    const publicClient = createPublicClient({
+      chain: CHAINS[chain].chain,
+      transport: getTransport(chain),
+    });
+    
+    let receipt;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({
+        hash: swapResult.txHash as Hex,
+        timeout: 120_000, // 2 minutes
+      });
+    } catch (waitError) {
+      // Timeout or other error waiting for receipt
+      throw new Error(
+        `Swap transaction submitted but confirmation timed out. ` +
+        `Check status: ${getExplorerTxUrl(chain, swapResult.txHash)}`
+      );
+    }
+
+    if (receipt.status !== 'success') {
+      throw new Error(
+        `Swap transaction failed on-chain. ` +
+        `Check details: ${getExplorerTxUrl(chain, swapResult.txHash)}`
+      );
+    }
+
+    console.error(`[clara] Swap confirmed: ${swapResult.txHash}`);
+
     // Build success message
     const successLines: string[] = [
       formatQuote(quote, chain, safetyInfo),
       '',
-      '✅ **Swap Submitted!**',
+      '✅ **Swap Confirmed!**',
       '',
     ];
 

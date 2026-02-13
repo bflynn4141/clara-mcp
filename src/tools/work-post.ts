@@ -5,7 +5,7 @@
  * Handles ERC-20 approval + bounty creation in sequence.
  */
 
-import { encodeFunctionData, parseUnits, createPublicClient, http, type Hex } from 'viem';
+import { encodeFunctionData, parseUnits, createPublicClient, type Hex } from 'viem';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
@@ -14,7 +14,7 @@ import {
   BOUNTY_FACTORY_ABI,
   ERC20_APPROVE_ABI,
 } from '../config/clara-contracts.js';
-import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
+import { getChainId, getExplorerTxUrl, getTransport } from '../config/chains.js';
 import { resolveToken } from '../config/tokens.js';
 import {
   toDataUri,
@@ -123,10 +123,27 @@ export async function handleWorkPost(
     const amountWei = parseUnits(amount, token.decimals);
     const chainId = getChainId('base');
 
+    // Get actual bond rate from factory (don't assume 10%)
+    const publicClient = createPublicClient({
+      chain: (await import('viem/chains')).base,
+      transport: getTransport('base'),
+    });
+    
+    let bondRateBps: bigint;
+    try {
+      bondRateBps = await publicClient.readContract({
+        address: contracts.bountyFactory,
+        abi: BOUNTY_FACTORY_ABI,
+        functionName: 'bondRate',
+      }) as bigint;
+    } catch {
+      bondRateBps = 1000n; // Fallback to 10%
+    }
+
     // Step 1: ERC-20 approve (escrow + poster bond)
     // The factory calculates posterBond = amount * bondRate / 10000
     // We approve amount + posterBond so the factory can pull both in createBounty
-    const posterBondWei = (amountWei * 1000n) / 10000n; // 10% default bond rate
+    const posterBondWei = (amountWei * bondRateBps) / 10000n;
     const totalApproval = amountWei + posterBondWei;
     const approveData = encodeFunctionData({
       abi: ERC20_APPROVE_ABI,
@@ -142,11 +159,17 @@ export async function handleWorkPost(
     });
 
     // Wait for approval tx to be mined so on-chain nonce advances
-    const publicClient = createPublicClient({
-      chain: (await import('viem/chains')).base,
-      transport: http(getRpcUrl('base')),
-    });
-    await publicClient.waitForTransactionReceipt({ hash: approveResult.txHash });
+    const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveResult.txHash });
+    
+    if (approveReceipt.status !== 'success') {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Token approval failed. Transaction reverted.`,
+        }],
+        isError: true,
+      };
+    }
 
     // Step 2: Create bounty
     const taskMetadata = {
@@ -188,9 +211,9 @@ export async function handleWorkPost(
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
-    // Calculate poster bond for display (same formula as the factory)
-    const bondRateBps = 1000; // Default 10%, matches factory default
-    const posterBondAmount = (parseFloat(amount) * bondRateBps) / 10000;
+    // Calculate poster bond for display (using actual bond rate from contract)
+    const bondRatePercent = Number(bondRateBps) / 100;
+    const posterBondAmount = (parseFloat(amount) * Number(bondRateBps)) / 10000;
     const totalCost = parseFloat(amount) + posterBondAmount;
 
     const lines = [
@@ -198,7 +221,7 @@ export async function handleWorkPost(
       '',
       `**Task:** ${taskSummary}`,
       `**Escrow:** ${formatAmount(amount, token.symbol)}`,
-      `**Poster Bond:** ${formatAmount(posterBondAmount.toString(), token.symbol)} (10% anti-griefing bond)`,
+      `**Poster Bond:** ${formatAmount(posterBondAmount.toString(), token.symbol)} (${bondRatePercent}% anti-griefing bond)`,
       `**Total Cost:** ${formatAmount(totalCost.toString(), token.symbol)}`,
       `**Deadline:** ${formatDeadline(deadlineTimestamp)}`,
       `**Skills:** ${skills.length > 0 ? skills.join(', ') : 'any'}`,

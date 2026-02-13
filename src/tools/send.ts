@@ -9,7 +9,6 @@ import {
   parseUnits,
   encodeFunctionData,
   createPublicClient,
-  http,
   type Hex,
 } from 'viem';
 import { signAndSendTransaction } from '../para/transactions.js';
@@ -17,7 +16,7 @@ import type { ToolContext, ToolResult } from '../middleware.js';
 import {
   CHAINS,
   getExplorerTxUrl,
-  getRpcUrl,
+  getTransport,
   isSupportedChain,
   type SupportedChain,
 } from '../config/chains.js';
@@ -83,7 +82,7 @@ async function isContract(address: string, chain: SupportedChain): Promise<boole
     const chainConfig = CHAINS[chain];
     const client = createPublicClient({
       chain: chainConfig.chain,
-      transport: http(getRpcUrl(chain)),
+      transport: getTransport(chain),
     });
 
     const code = await client.getCode({ address: address as Hex });
@@ -281,7 +280,7 @@ export async function handleSendRequest(
       // Simulate the ERC-20 transfer before signing
       const client = createPublicClient({
         chain: chainConfig.chain,
-        transport: http(getRpcUrl(chainName)),
+        transport: getTransport(chainName),
       });
       try {
         await client.call({
@@ -318,7 +317,7 @@ export async function handleSendRequest(
       // Simulate the native transfer before signing
       const client = createPublicClient({
         chain: chainConfig.chain,
-        transport: http(getRpcUrl(chainName)),
+        transport: getTransport(chainName),
       });
       try {
         await client.call({
@@ -343,6 +342,36 @@ export async function handleSendRequest(
       txHash = result.txHash;
     }
 
+    // Wait for transaction confirmation and verify success
+    console.error(`[clara] Waiting for send confirmation: ${txHash}`);
+    const publicClient = createPublicClient({
+      chain: chainConfig.chain,
+      transport: getTransport(chainName),
+    });
+
+    let receipt;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: 120_000, // 2 minutes
+      });
+    } catch (waitError) {
+      // Timeout or other error waiting for receipt
+      throw new Error(
+        `Transaction submitted but confirmation timed out. ` +
+        `Check status: ${getExplorerTxUrl(chainName, txHash)}`
+      );
+    }
+
+    if (receipt.status !== 'success') {
+      throw new Error(
+        `Transaction failed on-chain. ` +
+        `Check details: ${getExplorerTxUrl(chainName, txHash)}`
+      );
+    }
+
+    console.error(`[clara] Send confirmed: ${txHash}`);
+
     // Record spending for limit tracking (stablecoins only)
     if (estimatedUsd !== null && estimatedUsd > 0) {
       recordSpending({
@@ -361,7 +390,7 @@ export async function handleSendRequest(
     const explorerUrl = getExplorerTxUrl(chainName, txHash);
 
     const lines = [
-      `✅ Transaction sent!`,
+      `✅ Transaction confirmed!`,
       '',
       `**Amount:** ${sentAmount} ${symbol}`,
       `**To:** ${resolvedDisplay ? `${resolvedDisplay} (\`${to}\`)` : `\`${to}\``}`,

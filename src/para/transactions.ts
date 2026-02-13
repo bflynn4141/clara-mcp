@@ -15,13 +15,12 @@ import {
   type Hex,
   createPublicClient,
   createWalletClient,
-  http,
   type Chain,
 } from 'viem';
 import { base, mainnet, arbitrum, optimism, polygon } from 'viem/chains';
 import { getSession } from '../storage/session.js';
 import { createParaAccount } from './account.js';
-import { getRpcUrl, type SupportedChain } from '../config/chains.js';
+import { getTransport, type SupportedChain } from '../config/chains.js';
 import { estimateGas } from './gas.js';
 import { decodeContractError, formatContractError } from '../utils/contract-errors.js';
 
@@ -149,7 +148,6 @@ export async function signAndSendTransaction(
   }
 
   const chainName = getChainNameFromId(tx.chainId);
-  const rpcUrl = getRpcUrl(chainName);
 
   console.error(`[para] Preparing transaction on ${chainName} (chainId: ${tx.chainId})`);
 
@@ -159,14 +157,14 @@ export async function signAndSendTransaction(
   // Create public client for reading chain state
   const publicClient = createPublicClient({
     chain,
-    transport: http(rpcUrl),
+    transport: getTransport(chainName),
   });
 
   // Create wallet client for sending transactions
   const walletClient = createWalletClient({
     account,
     chain,
-    transport: http(rpcUrl),
+    transport: getTransport(chainName),
   });
 
   // Normalize value to bigint
@@ -214,15 +212,36 @@ export async function signAndSendTransaction(
     // If gas not provided, estimate it
     if (!request.gas) {
       console.error('[para] Estimating gas...');
-      const estimatedGas = await publicClient.estimateGas({
-        account: address,
-        to: tx.to,
-        value,
-        data: tx.data,
-      });
-      // Add 50% buffer for safety (complex contract calls like Morpho need headroom)
-      request.gas = (estimatedGas * 150n) / 100n;
-      console.error(`[para] Estimated gas: ${estimatedGas}, using: ${request.gas}`);
+      try {
+        const estimatedGas = await publicClient.estimateGas({
+          account: address,
+          to: tx.to,
+          value,
+          data: tx.data,
+        });
+        // Add 50% buffer for safety (complex contract calls like Morpho need headroom)
+        request.gas = (estimatedGas * 150n) / 100n;
+        console.error(`[para] Estimated gas: ${estimatedGas}, using: ${request.gas}`);
+      } catch (gasError) {
+        // Gas estimation failed - transaction would likely revert
+        const gasMessage = gasError instanceof Error ? gasError.message : String(gasError);
+        
+        // Check for common contract revert reasons
+        if (gasMessage.includes('transfer amount exceeds balance') || 
+            gasMessage.includes('insufficient allowance') ||
+            gasMessage.includes('ERC20')) {
+          throw new Error(
+            `Transaction would fail: ${gasMessage}. ` +
+            `Check your token balance and approve sufficient allowance.`
+          );
+        }
+        
+        // Use a safe default gas limit for known operations
+        const defaultGas = tx.data ? 500000n : 21000n; // 500k for contract calls, 21k for transfers
+        console.error(`[para] Gas estimation failed: ${gasMessage}`);
+        console.error(`[para] Using safe default gas limit: ${defaultGas}`);
+        request.gas = defaultGas;
+      }
     }
 
     // If gas prices not provided, use smart estimation
