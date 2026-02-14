@@ -162,35 +162,46 @@ export async function handleWorkPost(
       }
     }
 
-    // Step 1: ERC-20 approve (escrow + poster bond)
+    // Step 1: ERC-20 approve (escrow + poster bond) — skip if already sufficient
     // The factory calculates posterBond = amount * bondRate / 10000
     // We approve amount + posterBond so the factory can pull both in createBounty
     const posterBondWei = (amountWei * bondRateBps) / 10000n;
     const totalApproval = amountWei + posterBondWei;
-    const approveData = encodeFunctionData({
+
+    // Check current allowance — skip approve if already enough (avoids RPC propagation delay)
+    const currentAllowance = await publicClient.readContract({
+      address: token.address,
       abi: ERC20_APPROVE_ABI,
-      functionName: 'approve',
-      args: [contracts.bountyFactory, totalApproval],
-    });
+      functionName: 'allowance',
+      args: [ctx.walletAddress as Hex, contracts.bountyFactory],
+    }) as bigint;
 
-    const approveResult = await signAndSendTransaction(ctx.session.walletId!, {
-      to: token.address,
-      value: 0n,
-      data: approveData,
-      chainId,
-    });
+    if (currentAllowance < totalApproval) {
+      const approveData = encodeFunctionData({
+        abi: ERC20_APPROVE_ABI,
+        functionName: 'approve',
+        args: [contracts.bountyFactory, totalApproval],
+      });
 
-    // Wait for approval tx to be mined so on-chain nonce advances
-    const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveResult.txHash });
+      const approveResult = await signAndSendTransaction(ctx.session.walletId!, {
+        to: token.address,
+        value: 0n,
+        data: approveData,
+        chainId,
+      });
 
-    if (approveReceipt.status !== 'success') {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Token approval failed. Transaction reverted.`,
-        }],
-        isError: true,
-      };
+      // Wait for approval tx to be mined so on-chain nonce advances
+      const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveResult.txHash });
+
+      if (approveReceipt.status !== 'success') {
+        return {
+          content: [{
+            type: 'text',
+            text: `❌ Token approval failed. Transaction reverted.`,
+          }],
+          isError: true,
+        };
+      }
     }
 
     // Step 2: Create bounty
