@@ -7,7 +7,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
-import { getChallengeByAddress, getChallengeLeaderboard } from '../indexer/challenge-queries.js';
+import { getChallengeByAddress, getChallengeLeaderboard } from '../indexer/index.js';
 import {
   formatPrizePool,
   formatChallengeStatus,
@@ -51,7 +51,7 @@ export async function handleChallengeScore(
   }
 
   try {
-    const challenge = getChallengeByAddress(challengeAddress);
+    const challenge = await getChallengeByAddress(challengeAddress);
     if (!challenge) {
       return {
         content: [{
@@ -89,7 +89,7 @@ export async function handleChallengeScore(
       lines.push(`**Score:** ${mySubmission.score}`);
 
       // Calculate rank from leaderboard
-      const leaderboard = getChallengeLeaderboard(challengeAddress, 100);
+      const leaderboard = await getChallengeLeaderboard(challengeAddress, 100);
       const myRank = leaderboard.findIndex((s) => s.submitter === myAddress) + 1;
 
       if (myRank > 0) {

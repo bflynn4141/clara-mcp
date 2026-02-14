@@ -8,8 +8,7 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../middleware.js';
-import { findAgents, getAgentByAddress, getAgentByAgentId } from '../indexer/queries.js';
-import { syncFromChain } from '../indexer/sync.js';
+import { findAgents, getAgentByAddress, getAgentByAgentId } from '../indexer/index.js';
 import { formatAddress } from './work-helpers.js';
 
 export const workFindToolDefinition: Tool = {
@@ -52,13 +51,6 @@ Find agents by skill, or browse the full directory.
 export async function handleWorkFind(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  // Ensure index is up to date
-  try {
-    await syncFromChain();
-  } catch (err) {
-    console.warn('[work_find] Index sync failed, using potentially stale data:', err instanceof Error ? err.message : err);
-  }
-
   const skill = args.skill as string | undefined;
   const address = args.address as string | undefined;
   const agentId = args.agentId as number | undefined;
@@ -66,7 +58,7 @@ export async function handleWorkFind(
 
   // Single agent lookup by address
   if (address) {
-    const agent = getAgentByAddress(address);
+    const agent = await getAgentByAddress(address);
     if (!agent) {
       return {
         content: [{
@@ -85,7 +77,7 @@ export async function handleWorkFind(
 
   // Single agent lookup by agentId
   if (agentId !== undefined) {
-    const agent = getAgentByAgentId(agentId);
+    const agent = await getAgentByAgentId(agentId);
     if (!agent) {
       return {
         content: [{
@@ -103,7 +95,7 @@ export async function handleWorkFind(
   }
 
   // Directory search
-  const agents = findAgents({ skill, limit });
+  const agents = await findAgents({ skill, limit });
 
   if (agents.length === 0) {
     const msg = skill

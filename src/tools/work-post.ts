@@ -23,10 +23,9 @@ import {
   parseDeadline,
   formatDeadline,
 } from './work-helpers.js';
-import { syncFromChain } from '../indexer/sync.js';
-import { getBountyByTxHash } from '../indexer/queries.js';
 import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
 import { requireContract } from '../gas-preflight.js';
+import { awaitIndexed, getBountyByTxHash } from '../indexer/index.js';
 
 export const workPostToolDefinition: Tool = {
   name: 'work_post',
@@ -225,8 +224,8 @@ export async function handleWorkPost(
     // Sync local indexer to pick up the BountyCreated event
     let bountyAddress: string | null = null;
     try {
-      await syncFromChain();
-      const bounty = getBountyByTxHash(result.txHash);
+      await awaitIndexed(result.txHash);
+      const bounty = await getBountyByTxHash(result.txHash);
       bountyAddress = bounty?.bountyAddress ?? null;
     } catch (e) {
       console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);

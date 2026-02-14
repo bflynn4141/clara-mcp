@@ -402,8 +402,6 @@ describe('handleWorkBrowse', () => {
     expect(getOpenBounties).toHaveBeenCalledWith({
       status: 'claimed',
       skill: 'rust',
-      minAmount: 5,
-      maxAmount: 100,
       limit: 3,
     });
   });

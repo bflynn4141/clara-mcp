@@ -14,8 +14,7 @@ import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress } from './work-helpers.js';
 import { requireContract } from '../gas-preflight.js';
-import { syncFromChain } from '../indexer/sync.js';
-import { getBountyByAddress } from '../indexer/queries.js';
+import { awaitIndexed, getBountyByAddress } from '../indexer/index.js';
 
 export const workRejectToolDefinition: Tool = {
   name: 'work_reject',
@@ -57,7 +56,7 @@ export async function handleWorkReject(
     await requireContract('base', bountyAddress as Hex, 'bounty contract');
 
     // Check current rejection count for appropriate messaging
-    const bounty = getBountyByAddress(bountyAddress);
+    const bounty = await getBountyByAddress(bountyAddress);
     const currentRejections = bounty?.rejectionCount ?? 0;
 
     const data = encodeFunctionData({
@@ -72,11 +71,11 @@ export async function handleWorkReject(
       chainId: getChainId('base'),
     });
 
-    // Sync local indexer to pick up BountyRejected event
+    // Wait for indexer to pick up BountyRejected event
     try {
-      await syncFromChain();
+      await awaitIndexed(result.txHash);
     } catch (e) {
-      console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);
+      console.error(`[work] Indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);

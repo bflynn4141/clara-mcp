@@ -45,10 +45,10 @@ export async function handleWorkList(
     let bounties: BountyRecord[] = [];
 
     if (role === 'poster' || role === 'all') {
-      bounties.push(...getBountiesByPoster(address));
+      bounties.push(...await getBountiesByPoster(address));
     }
     if (role === 'claimer' || role === 'all') {
-      const claimed = getBountiesByClaimer(address);
+      const claimed = await getBountiesByClaimer(address);
       // Avoid duplicates if same address is both poster and claimer
       for (const b of claimed) {
         if (!bounties.some((existing) => existing.bountyAddress === b.bountyAddress)) {

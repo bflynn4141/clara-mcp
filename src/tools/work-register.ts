@@ -22,8 +22,7 @@ import {
   formatAddress,
   saveLocalAgentId,
 } from './work-helpers.js';
-import { syncFromChain } from '../indexer/sync.js';
-import { getAgentByAddress } from '../indexer/queries.js';
+import { awaitIndexed, getAgentByAddress } from '../indexer/index.js';
 
 const MIN_GAS_ETH = 0.0003; // ~$0.01 on Base, enough for register tx
 
@@ -283,8 +282,8 @@ export async function handleWorkRegister(
     let proxyUrl: string | null = null;
 
     try {
-      await syncFromChain();
-      const agent = getAgentByAddress(ctx.walletAddress);
+      await awaitIndexed(result.txHash);
+      const agent = await getAgentByAddress(ctx.walletAddress);
       if (agent) {
         agentId = agent.agentId;
         saveLocalAgentId(agentId, name);

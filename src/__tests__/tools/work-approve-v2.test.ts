@@ -17,9 +17,9 @@ vi.mock('../../para/transactions.js', () => ({
   signAndSendTransaction: vi.fn(),
 }));
 
-// Mock indexer sync (called after approve)
-vi.mock('../../indexer/sync.js', () => ({
-  syncFromChain: vi.fn(),
+// Mock indexer awaitIndexed (called after approve for freshness)
+vi.mock('../../indexer/index.js', () => ({
+  awaitIndexed: vi.fn(),
 }));
 
 // Mock gas-preflight (requireContract makes real RPC calls)
@@ -28,7 +28,7 @@ vi.mock('../../gas-preflight.js', () => ({
 }));
 
 import { signAndSendTransaction } from '../../para/transactions.js';
-import { syncFromChain } from '../../indexer/sync.js';
+import { awaitIndexed } from '../../indexer/index.js';
 
 // ─── Test Helpers ───────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ describe('work_approve', () => {
     vi.mocked(signAndSendTransaction).mockResolvedValue({
       txHash: TEST_TX_HASH,
     });
-    vi.mocked(syncFromChain).mockResolvedValue(undefined);
+    vi.mocked(awaitIndexed).mockResolvedValue(null);
   });
 
   describe('Tool Definition', () => {
@@ -334,8 +334,8 @@ describe('work_approve', () => {
       expect(result.content[0].text).toContain('Unknown error');
     });
 
-    it('continues successfully even if sync fails', async () => {
-      vi.mocked(syncFromChain).mockRejectedValue(new Error('sync failed'));
+    it('continues successfully even if awaitIndexed fails', async () => {
+      vi.mocked(awaitIndexed).mockRejectedValue(new Error('indexer unreachable'));
 
       const result = await handleWorkApprove({
         bountyAddress: TEST_BOUNTY,
@@ -348,14 +348,14 @@ describe('work_approve', () => {
     });
   });
 
-  describe('Post-Approve Sync', () => {
-    it('calls syncFromChain after successful approval', async () => {
+  describe('Post-Approve Indexing', () => {
+    it('calls awaitIndexed after successful approval', async () => {
       await handleWorkApprove({
         bountyAddress: TEST_BOUNTY,
         rating: 4,
       }, makeCtx());
 
-      expect(syncFromChain).toHaveBeenCalled();
+      expect(awaitIndexed).toHaveBeenCalledWith(TEST_TX_HASH);
     });
   });
 });

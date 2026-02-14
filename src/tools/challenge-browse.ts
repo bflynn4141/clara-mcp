@@ -69,13 +69,21 @@ export async function handleChallengeBrowse(
   const maxPrize = args.maxPrize as number | undefined;
 
   try {
-    const challenges = getOpenChallenges({
+    let challenges = await getOpenChallenges({
       status,
       skill,
-      minPrize,
-      maxPrize,
       limit,
     });
+
+    // Client-side prize filtering (not supported by Ponder)
+    if (minPrize !== undefined || maxPrize !== undefined) {
+      challenges = challenges.filter((c) => {
+        const amt = parseFloat(c.prizePool);
+        if (minPrize !== undefined && amt < minPrize) return false;
+        if (maxPrize !== undefined && amt > maxPrize) return false;
+        return true;
+      });
+    }
 
     if (challenges.length === 0) {
       const filterNote = skill ? ` matching skill "${skill}"` : '';

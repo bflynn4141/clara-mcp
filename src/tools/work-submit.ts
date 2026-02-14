@@ -13,8 +13,7 @@ import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress, toDataUri } from './work-helpers.js';
 import { requireContract } from '../gas-preflight.js';
-import { syncFromChain } from '../indexer/sync.js';
-import { getBountyByAddress } from '../indexer/queries.js';
+import { awaitIndexed, getBountyByAddress } from '../indexer/index.js';
 
 export const workSubmitToolDefinition: Tool = {
   name: 'work_submit',
@@ -85,17 +84,17 @@ export async function handleWorkSubmit(
       chainId: getChainId('base'),
     });
 
-    // Sync local indexer to pick up WorkSubmitted event
+    // Wait for indexer to pick up WorkSubmitted event
     try {
-      await syncFromChain();
+      await awaitIndexed(result.txHash);
     } catch (e) {
-      console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);
+      console.error(`[work] Indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);
 
     // Check if this was a resubmission after rejection
-    const bounty = getBountyByAddress(bountyAddress);
+    const bounty = await getBountyByAddress(bountyAddress);
     const isResubmission = bounty?.rejectionCount && bounty.rejectionCount > 0;
 
     const lines = [

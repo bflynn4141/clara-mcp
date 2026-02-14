@@ -60,7 +60,7 @@ export async function handleChallengeLeaderboard(
   }
 
   try {
-    const challenge = getChallengeByAddress(challengeAddress);
+    const challenge = await getChallengeByAddress(challengeAddress);
     if (!challenge) {
       return {
         content: [{
@@ -75,7 +75,7 @@ export async function handleChallengeLeaderboard(
     const statusStr = formatChallengeStatus(challenge.status);
     const prizeStr = formatPrizePool(challenge.prizePool, challenge.token);
 
-    const leaderboard = getChallengeLeaderboard(challengeAddress, limit);
+    const leaderboard = await getChallengeLeaderboard(challengeAddress, limit);
 
     if (leaderboard.length === 0) {
       return {
@@ -96,7 +96,7 @@ export async function handleChallengeLeaderboard(
 
     for (let i = 0; i < leaderboard.length; i++) {
       const sub = leaderboard[i];
-      const agent = getAgentByAgentId(sub.agentId);
+      const agent = await getAgentByAgentId(sub.agentId);
       const nameStr = agent ? agent.name : `Agent #${sub.agentId}`;
       const addrStr = formatAddress(sub.submitter);
 

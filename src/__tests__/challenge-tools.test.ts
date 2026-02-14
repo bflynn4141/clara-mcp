@@ -14,6 +14,7 @@ vi.mock('../indexer/index.js', () => ({
   getChallengeByAddress: vi.fn(() => null),
   getChallengeLeaderboard: vi.fn(() => []),
   getAgentByAgentId: vi.fn(() => null),
+  awaitIndexed: vi.fn(),
 }));
 
 // Mock work-helpers to avoid filesystem reads
@@ -79,11 +80,7 @@ vi.mock('../indexer/sync.js', () => ({
   getIndex: vi.fn(),
 }));
 
-// Mock challenge-queries for tools that import directly
-vi.mock('../indexer/challenge-queries.js', () => ({
-  getChallengeByAddress: vi.fn(() => null),
-  getChallengeLeaderboard: vi.fn(() => []),
-}));
+// Note: challenge-queries mock removed — all tools now import from barrel (../indexer/index.js)
 
 import {
   getOpenChallenges,
@@ -91,10 +88,7 @@ import {
   getChallengeLeaderboard as getChallengeLeaderboardIndexer,
   getAgentByAgentId,
 } from '../indexer/index.js';
-import {
-  getChallengeByAddress as getChallengeByAddressQueries,
-  getChallengeLeaderboard as getChallengeLeaderboardQueries,
-} from '../indexer/challenge-queries.js';
+// Removed: challenge-queries.js import — barrel import covers all
 import { handleChallengeBrowse } from '../tools/challenge-browse.js';
 import { handleChallengeDetail } from '../tools/challenge-detail.js';
 import { handleChallengeLeaderboard } from '../tools/challenge-leaderboard.js';
@@ -204,8 +198,6 @@ describe('Challenge Tool Handlers', () => {
       expect(getOpenChallenges).toHaveBeenCalledWith({
         status: 'scoring',
         skill: 'security',
-        minPrize: 100,
-        maxPrize: 1000,
         limit: 5,
       });
     });
@@ -350,7 +342,7 @@ describe('Challenge Tool Handlers', () => {
     });
 
     it('returns "not found" for missing challenge', async () => {
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(null);
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(null);
 
       const result = await handleChallengeScore(
         { challengeAddress: '0x1111111111111111111111111111111111111111' },
@@ -361,7 +353,7 @@ describe('Challenge Tool Handlers', () => {
     });
 
     it('returns "not submitted" when user has no submission', async () => {
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(makeChallengeRecord());
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(makeChallengeRecord());
 
       const result = await handleChallengeScore(
         { challengeAddress: '0x1111111111111111111111111111111111111111' },
@@ -377,8 +369,8 @@ describe('Challenge Tool Handlers', () => {
           [myAddr]: makeSubmissionRecord({ submitter: myAddr, agentId: 42, score: 8500, version: 2 }),
         },
       });
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(challenge);
-      vi.mocked(getChallengeLeaderboardQueries).mockReturnValue([
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(challenge);
+      vi.mocked(getChallengeLeaderboardIndexer).mockReturnValue([
         makeSubmissionRecord({ submitter: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', score: 9500 }),
         makeSubmissionRecord({ submitter: myAddr, score: 8500 }),
       ]);
@@ -401,7 +393,7 @@ describe('Challenge Tool Handlers', () => {
           [myAddr]: makeSubmissionRecord({ submitter: myAddr, agentId: 42, score: null }),
         },
       });
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(challenge);
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(challenge);
 
       const result = await handleChallengeScore(
         { challengeAddress: '0x1111111111111111111111111111111111111111' },
@@ -433,7 +425,7 @@ describe('Challenge Tool Handlers', () => {
     });
 
     it('returns error when challenge is not open', async () => {
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(
         makeChallengeRecord({ status: 'finalized' }),
       );
 
@@ -462,7 +454,7 @@ describe('Challenge Tool Handlers', () => {
     });
 
     it('returns error when challenge is not finalized', async () => {
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(
         makeChallengeRecord({ status: 'open' }),
       );
 
@@ -475,7 +467,7 @@ describe('Challenge Tool Handlers', () => {
     });
 
     it('returns error when user is not a winner', async () => {
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(
         makeChallengeRecord({
           status: 'finalized',
           winners: [
@@ -501,7 +493,7 @@ describe('Challenge Tool Handlers', () => {
 
     it('returns message when prize already claimed', async () => {
       const myAddr = mockToolContext.walletAddress.toLowerCase();
-      vi.mocked(getChallengeByAddressQueries).mockReturnValue(
+      vi.mocked(getChallengeByAddressIndexer).mockReturnValue(
         makeChallengeRecord({
           status: 'finalized',
           winners: [

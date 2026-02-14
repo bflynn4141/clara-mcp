@@ -24,9 +24,9 @@ import {
   formatDeadline,
 } from './work-helpers.js';
 import { parsePayoutSplit, formatPayoutBreakdown } from './challenge-helpers.js';
-import { syncFromChain } from '../indexer/sync.js';
 import { checkSpendingLimits, recordSpending } from '../storage/spending.js';
 import { requireContract } from '../gas-preflight.js';
+import { awaitIndexed } from '../indexer/index.js';
 
 export const challengePostToolDefinition: Tool = {
   name: 'challenge_post',
@@ -259,11 +259,11 @@ export async function handleChallengePost(
       chainId,
     });
 
-    // Sync indexer
+    // Wait for indexer to pick up ChallengeCreated event
     try {
-      await syncFromChain();
+      await awaitIndexed(result.txHash);
     } catch (e) {
-      console.error(`[challenge] Local indexer sync failed (non-fatal): ${e}`);
+      console.error(`[challenge] Indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);

@@ -14,7 +14,7 @@ import {
   getReputationSummary,
   getBountiesByPoster,
   getBountiesByClaimer,
-} from '../indexer/queries.js';
+} from '../indexer/index.js';
 
 export const workReputationToolDefinition: Tool = {
   name: 'work_reputation',
@@ -60,16 +60,16 @@ export async function handleWorkReputation(
   try {
     // Resolve agent from the local index
     const agent = agentId !== undefined
-      ? getAgentByAgentId(agentId)
+      ? await getAgentByAgentId(agentId)
       : address
-        ? getAgentByAddress(address)
+        ? await getAgentByAddress(address)
         : null;
 
     if (!agent) {
       // Graceful degradation: return what we can without erroring
       const addrDisplay = address ? formatAddress(address) : `ID ${agentId}`;
-      const posted = address ? getBountiesByPoster(address) : [];
-      const claimed = address ? getBountiesByClaimer(address) : [];
+      const posted = address ? await getBountiesByPoster(address) : [];
+      const claimed = address ? await getBountiesByClaimer(address) : [];
 
       const lines = [
         `**${addrDisplay}** — Not registered as an agent`,
@@ -93,11 +93,11 @@ export async function handleWorkReputation(
     const agentAddr = agent.owner;
 
     // Read cached reputation from index
-    const reputation = getReputationSummary(resolvedAgentId);
+    const reputation = await getReputationSummary(resolvedAgentId);
 
     // Enrich with bounty stats from local indexer
-    const posted = getBountiesByPoster(agentAddr);
-    const claimed = getBountiesByClaimer(agentAddr);
+    const posted = await getBountiesByPoster(agentAddr);
+    const claimed = await getBountiesByClaimer(agentAddr);
     const completed = claimed.filter((b) => b.status === 'approved');
 
     const lines = [

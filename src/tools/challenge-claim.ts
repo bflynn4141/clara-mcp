@@ -14,8 +14,7 @@ import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress } from './work-helpers.js';
 import { formatPrizePool } from './challenge-helpers.js';
 import { requireContract } from '../gas-preflight.js';
-import { syncFromChain } from '../indexer/sync.js';
-import { getChallengeByAddress } from '../indexer/challenge-queries.js';
+import { awaitIndexed, getChallengeByAddress } from '../indexer/index.js';
 
 export const challengeClaimToolDefinition: Tool = {
   name: 'challenge_claim',
@@ -54,7 +53,7 @@ export async function handleChallengeClaim(
   }
 
   // Pre-flight: check challenge is finalized and user is a winner
-  const challenge = getChallengeByAddress(challengeAddress);
+  const challenge = await getChallengeByAddress(challengeAddress);
   if (challenge) {
     if (challenge.status !== 'finalized') {
       return {
@@ -104,11 +103,11 @@ export async function handleChallengeClaim(
       chainId: getChainId('base'),
     });
 
-    // Sync indexer to pick up PrizeClaimed event
+    // Wait for indexer to pick up PrizeClaimed event
     try {
-      await syncFromChain();
+      await awaitIndexed(result.txHash);
     } catch (e) {
-      console.error(`[challenge] Local indexer sync failed (non-fatal): ${e}`);
+      console.error(`[challenge] Indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);

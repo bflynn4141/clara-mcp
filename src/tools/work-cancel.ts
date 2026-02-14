@@ -13,7 +13,7 @@ import { BOUNTY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress } from './work-helpers.js';
 import { requireContract } from '../gas-preflight.js';
-import { syncFromChain } from '../indexer/sync.js';
+import { awaitIndexed } from '../indexer/index.js';
 
 export const workCancelToolDefinition: Tool = {
   name: 'work_cancel',
@@ -65,11 +65,11 @@ export async function handleWorkCancel(
       chainId: getChainId('base'),
     });
 
-    // Sync local indexer to pick up BountyCancelled event
+    // Wait for indexer to pick up BountyCancelled event
     try {
-      await syncFromChain();
+      await awaitIndexed(result.txHash);
     } catch (e) {
-      console.error(`[work] Local indexer sync failed (non-fatal): ${e}`);
+      console.error(`[work] Indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);

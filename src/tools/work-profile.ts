@@ -18,7 +18,7 @@ import {
   getReputationSummary,
   getBountiesByPoster,
   getBountiesByClaimer,
-} from '../indexer/queries.js';
+} from '../indexer/index.js';
 
 export const workProfileToolDefinition: Tool = {
   name: 'work_profile',
@@ -62,14 +62,14 @@ export async function handleWorkProfile(
   try {
     // Resolve agent from the local index
     const agent = agentId !== undefined
-      ? getAgentByAgentId(agentId)
+      ? await getAgentByAgentId(agentId)
       : address
-        ? getAgentByAddress(address)
+        ? await getAgentByAddress(address)
         : null;
 
     // If we still don't have an agent, show bounty-only profile
     if (!agent && address) {
-      return buildBountyOnlyProfile(address);
+      return await buildBountyOnlyProfile(address);
     }
 
     if (!agent) {
@@ -101,11 +101,11 @@ export async function handleWorkProfile(
     }
 
     // Read cached reputation from index
-    const reputation = getReputationSummary(resolvedAgentId);
+    const reputation = await getReputationSummary(resolvedAgentId);
 
     // Get bounty history from local indexer
-    const posted = getBountiesByPoster(agentAddr);
-    const claimed = getBountiesByClaimer(agentAddr);
+    const posted = await getBountiesByPoster(agentAddr);
+    const claimed = await getBountiesByClaimer(agentAddr);
     const completed = claimed.filter((b) => b.status === 'approved');
 
     // Build profile card
@@ -192,9 +192,9 @@ export async function handleWorkProfile(
  * Fallback when we have an address but no agentId (not registered).
  * Shows bounty history from local indexer only.
  */
-function buildBountyOnlyProfile(address: string): ToolResult {
-  const posted = getBountiesByPoster(address);
-  const claimed = getBountiesByClaimer(address);
+async function buildBountyOnlyProfile(address: string): Promise<ToolResult> {
+  const posted = await getBountiesByPoster(address);
+  const claimed = await getBountiesByClaimer(address);
 
   if (posted.length === 0 && claimed.length === 0) {
     return {

@@ -14,8 +14,7 @@ import { getChainId, getExplorerTxUrl } from '../config/chains.js';
 import { formatAddress } from './work-helpers.js';
 import { getLocalAgentId } from './work-helpers.js';
 import { requireContract } from '../gas-preflight.js';
-import { syncFromChain } from '../indexer/sync.js';
-import { getChallengeByAddress } from '../indexer/challenge-queries.js';
+import { awaitIndexed, getChallengeByAddress } from '../indexer/index.js';
 
 export const challengeSubmitToolDefinition: Tool = {
   name: 'challenge_submit',
@@ -85,7 +84,7 @@ export async function handleChallengeSubmit(
   }
 
   // Check the challenge exists and is open
-  const challenge = getChallengeByAddress(challengeAddress);
+  const challenge = await getChallengeByAddress(challengeAddress);
   if (challenge && challenge.status !== 'open') {
     return {
       content: [{
@@ -115,11 +114,11 @@ export async function handleChallengeSubmit(
       chainId: getChainId('base'),
     });
 
-    // Sync indexer to pick up SubmissionReceived event
+    // Wait for indexer to pick up SubmissionReceived event
     try {
-      await syncFromChain();
+      await awaitIndexed(result.txHash);
     } catch (e) {
-      console.error(`[challenge] Local indexer sync failed (non-fatal): ${e}`);
+      console.error(`[challenge] Indexer sync failed (non-fatal): ${e}`);
     }
 
     const explorerUrl = getExplorerTxUrl('base', result.txHash);

@@ -61,13 +61,21 @@ export async function handleWorkBrowse(
   const maxAmount = args.maxAmount as number | undefined;
 
   try {
-    const bounties = getOpenBounties({
+    let bounties = await getOpenBounties({
       status,
       skill,
-      minAmount,
-      maxAmount,
       limit,
     });
+
+    // Client-side amount filtering (not supported by Ponder)
+    if (minAmount !== undefined || maxAmount !== undefined) {
+      bounties = bounties.filter((b) => {
+        const amt = parseFloat(b.amount);
+        if (minAmount !== undefined && amt < minAmount) return false;
+        if (maxAmount !== undefined && amt > maxAmount) return false;
+        return true;
+      });
+    }
 
     if (bounties.length === 0) {
       const filterNote = skill ? ` matching skill "${skill}"` : '';

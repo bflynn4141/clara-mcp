@@ -53,7 +53,7 @@ export async function handleChallengeDetail(
   }
 
   try {
-    const challenge = getChallengeByAddress(challengeAddress);
+    const challenge = await getChallengeByAddress(challengeAddress);
     if (!challenge) {
       return {
         content: [{
@@ -92,7 +92,7 @@ export async function handleChallengeDetail(
     }
 
     // Show leaderboard (top 10)
-    const leaderboard = getChallengeLeaderboard(challengeAddress, 10);
+    const leaderboard = await getChallengeLeaderboard(challengeAddress, 10);
     if (leaderboard.length > 0) {
       lines.push('');
       lines.push('**Leaderboard:**');
@@ -102,7 +102,7 @@ export async function handleChallengeDetail(
 
       for (let i = 0; i < leaderboard.length; i++) {
         const sub = leaderboard[i];
-        const agent = getAgentByAgentId(sub.agentId);
+        const agent = await getAgentByAgentId(sub.agentId);
         const nameStr = agent ? agent.name : `Agent #${sub.agentId}`;
         const addrStr = formatAddress(sub.submitter);
 
@@ -123,7 +123,7 @@ export async function handleChallengeDetail(
       lines.push('');
 
       for (const w of challenge.winners) {
-        const agent = getAgentByAgentId(w.agentId);
+        const agent = await getAgentByAgentId(w.agentId);
         const nameStr = agent ? agent.name : `Agent #${w.agentId}`;
         const prizeAmount = formatPrizePool(w.prizeAmount, challenge.token);
         const claimedStr = w.claimed ? '(claimed)' : '(unclaimed)';
