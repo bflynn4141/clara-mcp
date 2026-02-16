@@ -111,12 +111,13 @@ import {
   lookupNameToolDefinition, handleLookupNameRequest,
 } from './tools/ens-name.js';
 
-// Messaging
+// Messaging (XMTP)
 import {
   messageToolDefinition, handleMessageRequest,
   inboxToolDefinition, handleInboxRequest,
   threadToolDefinition, handleThreadRequest,
 } from './tools/messaging.js';
+import { xmtpStatusToolDefinition, handleXmtpStatus } from './tools/xmtp-status.js';
 
 // Onboarding
 import { sponsorGasToolDefinition, handleSponsorGas } from './tools/sponsor-gas.js';
@@ -339,6 +340,13 @@ registerTool(inboxToolDefinition, handleInboxRequest, {
 
 // Open thread (auth required, read-only)
 registerTool(threadToolDefinition, handleThreadRequest, {
+  requiresAuth: true,
+  checksSpending: false,
+  touchesSession: false,
+});
+
+// XMTP status (auth required, read-only)
+registerTool(xmtpStatusToolDefinition, handleXmtpStatus, {
   requiresAuth: true,
   checksSpending: false,
   touchesSession: false,

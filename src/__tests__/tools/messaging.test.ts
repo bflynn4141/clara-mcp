@@ -1,8 +1,8 @@
 /**
- * Tests for messaging tools
+ * Tests for messaging tools (XMTP)
  *
  * Tests wallet_message, wallet_inbox, and wallet_thread MCP tools
- * with mocked proxy API responses.
+ * with mocked XMTP client and identity cache.
  *
  * NOTE: Session validation is handled by middleware (not the handler).
  * The handler receives a pre-validated ToolContext from middleware.
@@ -12,15 +12,78 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolContext } from '../../middleware.js';
 import type { Hex } from 'viem';
 
-// Mock session storage (used by middleware, kept for compatibility)
-vi.mock('../../storage/session.js', () => ({
-  getSession: vi.fn(),
-  touchSession: vi.fn(),
+// ─── Mock Setup ──────────────────────────────────────────────────
+
+// Mock XMTP singleton
+const mockClient = {
+  inboxId: 'my-inbox-id',
+  conversations: {
+    sync: vi.fn(),
+    listDms: vi.fn(() => []),
+    listGroups: vi.fn(() => []),
+    getDmByInboxId: vi.fn(),
+  },
+  fetchInboxIdByIdentifier: vi.fn(),
+};
+
+const mockIdentityCache = {
+  resolveName: vi.fn(),
+  resolveWallet: vi.fn(),
+  resolveInboxId: vi.fn(),
+  getSenderName: vi.fn((id: string) => id.slice(0, 6) + '...' + id.slice(-4)),
+  setInboxId: vi.fn(),
+  size: 0,
+};
+
+vi.mock('../../xmtp/singleton.js', () => ({
+  getOrInitXmtpClient: vi.fn(async () => mockClient),
+  getIdentityCache: vi.fn(() => mockIdentityCache),
 }));
 
-// Mock fetch for proxy API calls
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+// Mock group manager
+const mockDm = {
+  id: 'dm-conversation-1',
+  peerInboxId: 'peer-inbox-id',
+  sync: vi.fn(),
+  sendText: vi.fn(async () => 'msg-id-123'),
+  messages: vi.fn(async () => []),
+  lastMessage: vi.fn(async () => undefined),
+};
+
+const mockFindOrCreateDm = vi.fn(async () => mockDm);
+
+vi.mock('../../xmtp/groups.js', () => {
+  // Must use a class (not arrow fn) so `new ClaraGroupManager(...)` works
+  class MockClaraGroupManager {
+    findOrCreateDm = mockFindOrCreateDm;
+  }
+  return { ClaraGroupManager: MockClaraGroupManager };
+});
+
+// Mock content types (pass-through for testing)
+vi.mock('../../xmtp/content-types.js', () => ({
+  encodeClaraMessage: vi.fn((payload: { text: string }) => `CLARA_V1:${JSON.stringify({ ...payload, v: 1 })}`),
+  extractText: vi.fn((raw: string) => {
+    if (typeof raw === 'string' && raw.startsWith('CLARA_V1:')) {
+      try {
+        return JSON.parse(raw.slice(9)).text || raw;
+      } catch { return raw; }
+    }
+    return raw;
+  }),
+}));
+
+// Mock fs for read cursor operations (avoid real file system)
+vi.mock('fs', async () => {
+  const actual: Record<string, unknown> = await vi.importActual('fs');
+  return {
+    ...actual,
+    existsSync: vi.fn(() => false),
+    readFileSync: vi.fn(() => '{}'),
+    writeFileSync: vi.fn(),
+    mkdirSync: vi.fn(),
+  };
+});
 
 import {
   messageToolDefinition,
@@ -35,6 +98,7 @@ import {
 
 const TEST_ADDRESS = '0xabcdef1234567890abcdef1234567890abcdef12' as Hex;
 const OTHER_ADDRESS = '0x1234567890123456789012345678901234567890' as Hex;
+const PEER_INBOX_ID = 'peer-inbox-id';
 
 function makeCtx(address: Hex = TEST_ADDRESS): ToolContext {
   return {
@@ -48,16 +112,24 @@ function makeCtx(address: Hex = TEST_ADDRESS): ToolContext {
   };
 }
 
-/**
- * Build a mock Response with JSON body and configurable status.
- */
-function mockResponse(body: Record<string, unknown>, status = 200) {
+function makeMockMessage(overrides: Partial<{
+  id: string;
+  content: string;
+  senderInboxId: string;
+  sentAt: Date;
+  sentAtNs: bigint;
+}> = {}) {
+  const sentAt = overrides.sentAt ?? new Date();
   return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: status === 200 ? 'OK' : status === 401 ? 'Unauthorized' : status === 404 ? 'Not Found' : 'Error',
-    json: () => Promise.resolve(body),
-    text: () => Promise.resolve(JSON.stringify(body)),
+    id: overrides.id ?? 'msg-1',
+    content: overrides.content ?? 'hello world',
+    senderInboxId: overrides.senderInboxId ?? PEER_INBOX_ID,
+    sentAt,
+    sentAtNs: overrides.sentAtNs ?? BigInt(sentAt.getTime()) * 1_000_000n,
+    kind: 0,
+    deliveryStatus: 1,
+    contentType: { typeId: 'text', versionMajor: 1, versionMinor: 0, authorityId: 'xmtp.org' },
+    conversationId: 'dm-conversation-1',
   };
 }
 
@@ -116,7 +188,14 @@ describe('Messaging Tool Definitions', () => {
 describe('handleMessageRequest', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetch.mockReset();
+    // Reset default mock returns
+    mockClient.fetchInboxIdByIdentifier.mockResolvedValue(PEER_INBOX_ID);
+    mockIdentityCache.resolveName.mockReturnValue({
+      claraName: 'brian',
+      walletAddress: OTHER_ADDRESS,
+    });
+    mockIdentityCache.resolveWallet.mockReturnValue(null);
+    mockDm.sendText.mockResolvedValue('msg-id-123');
   });
 
   describe('Input Validation', () => {
@@ -154,58 +233,41 @@ describe('handleMessageRequest', () => {
 
     it('accepts message exactly 2000 characters', async () => {
       const exactMessage = 'a'.repeat(2000);
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_test123',
-        to: { address: OTHER_ADDRESS, name: 'brian' },
-      }));
-
       const result = await handleMessageRequest({ to: 'brian', message: exactMessage }, makeCtx());
       expect(result.isError).toBeUndefined();
     });
   });
 
-  describe('Identity Resolution (via proxy)', () => {
-    it('forwards bare name to proxy as-is', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_name',
-        to: { address: OTHER_ADDRESS, name: 'brian' },
-      }));
+  describe('Recipient Resolution', () => {
+    it('resolves bare name via identity cache', async () => {
+      const result = await handleMessageRequest({ to: 'brian', message: 'hi' }, makeCtx());
 
-      await handleMessageRequest({ to: 'brian', message: 'hi' }, makeCtx());
-
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.to).toBe('brian');
+      expect(mockIdentityCache.resolveName).toHaveBeenCalledWith('brian');
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('brian');
     });
 
-    it('forwards full ENS name to proxy as-is', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_ens',
-        to: { address: OTHER_ADDRESS, name: 'brian' },
-      }));
+    it('resolves raw address directly', async () => {
+      mockIdentityCache.resolveWallet.mockReturnValue({
+        claraName: 'alice',
+        walletAddress: OTHER_ADDRESS,
+      });
 
-      await handleMessageRequest({ to: 'brian.claraid.eth', message: 'hi' }, makeCtx());
+      const result = await handleMessageRequest(
+        { to: OTHER_ADDRESS, message: 'hi' },
+        makeCtx(),
+      );
 
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.to).toBe('brian.claraid.eth');
+      expect(mockClient.fetchInboxIdByIdentifier).toHaveBeenCalledWith({
+        identifier: OTHER_ADDRESS,
+        identifierKind: expect.anything(),
+      });
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('alice');
     });
 
-    it('forwards raw address to proxy as-is', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_addr',
-        to: { address: OTHER_ADDRESS, name: null },
-      }));
-
-      await handleMessageRequest({ to: OTHER_ADDRESS, message: 'hi' }, makeCtx());
-
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.to).toBe(OTHER_ADDRESS);
-    });
-
-    it('handles non-existent name error from proxy', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { code: 'INVALID_RECIPIENT', message: 'Name not found: doesnotexist' },
-        400,
-      ));
+    it('handles non-existent name', async () => {
+      mockIdentityCache.resolveName.mockReturnValue(undefined);
 
       const result = await handleMessageRequest(
         { to: 'doesnotexist', message: 'hello' },
@@ -217,32 +279,21 @@ describe('handleMessageRequest', () => {
       expect(result.content[0].text).toContain('doesnotexist');
     });
 
-    it('handles self-messaging error from proxy', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { code: 'SELF_MESSAGE', error: 'Cannot send a message to yourself' },
-        400,
-      ));
+    it('handles recipient without XMTP identity', async () => {
+      mockClient.fetchInboxIdByIdentifier.mockResolvedValue(null);
 
       const result = await handleMessageRequest(
-        { to: TEST_ADDRESS, message: 'talking to myself' },
+        { to: 'brian', message: 'hello' },
         makeCtx(),
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Failed to send message');
+      expect(result.content[0].text).toContain("hasn't set up XMTP");
     });
   });
 
   describe('Successful Send', () => {
     it('sends message and returns confirmation', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_abc123',
-        threadId: 'thread_xyz',
-        to: { address: OTHER_ADDRESS, name: 'brian' },
-        body: 'hey, tx confirmed!',
-        createdAt: new Date().toISOString(),
-      }));
-
       const result = await handleMessageRequest(
         { to: 'brian', message: 'hey, tx confirmed!' },
         makeCtx(),
@@ -254,108 +305,42 @@ describe('handleMessageRequest', () => {
       expect(result.content[0].text).toContain('hey, tx confirmed!');
     });
 
-    it('sends correct payload to proxy', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_123',
-        to: { address: OTHER_ADDRESS, name: null },
-      }));
-
+    it('sends encoded CLARA_V1 message via XMTP', async () => {
       await handleMessageRequest(
-        { to: OTHER_ADDRESS, message: 'test msg' },
+        { to: 'brian', message: 'test msg' },
         makeCtx(),
       );
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/messages'),
-        expect.objectContaining({
-          method: 'POST',
-        }),
+      expect(mockDm.sendText).toHaveBeenCalledWith(
+        expect.stringContaining('CLARA_V1:'),
       );
-
-      // Verify headers (proxyFetch uses Headers API)
-      const callArgs = mockFetch.mock.calls[0];
-      const headers = callArgs[1].headers as Headers;
-      expect(headers.get('Content-Type')).toBe('application/json');
-      expect(headers.get('X-Clara-Address')).toBe(TEST_ADDRESS);
-
-      // Verify body payload
-      const body = JSON.parse(callArgs[1].body);
-      expect(body.to).toBe(OTHER_ADDRESS);
-      expect(body.body).toBe('test msg');
-    });
-
-    it('includes replyTo when provided', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_reply',
-        to: { address: OTHER_ADDRESS, name: 'brian' },
-      }));
-
-      await handleMessageRequest(
-        { to: 'brian', message: 'got it', replyTo: 'msg_original' },
-        makeCtx(),
-      );
-
-      const callArgs = mockFetch.mock.calls[0];
-      const body = JSON.parse(callArgs[1].body);
-      expect(body.replyTo).toBe('msg_original');
     });
 
     it('truncates long messages in confirmation preview', async () => {
       const longMsg = 'This is a very long message that should get truncated in the preview because it exceeds fifty characters';
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_long',
-        to: { address: OTHER_ADDRESS, name: 'alice' },
-      }));
 
       const result = await handleMessageRequest(
-        { to: 'alice', message: longMsg },
+        { to: 'brian', message: longMsg },
         makeCtx(),
       );
 
       expect(result.isError).toBeUndefined();
-      // The confirmation message should contain a truncated preview (truncate function: 50 chars)
       expect(result.content[0].text).toContain('...');
     });
 
-    it('uses recipient name from proxy response when available', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        id: 'msg_named',
-        to: { address: OTHER_ADDRESS, name: 'alice' },
-      }));
+    it('caches inbox ID after successful resolution', async () => {
+      await handleMessageRequest({ to: 'brian', message: 'hi' }, makeCtx());
 
-      const result = await handleMessageRequest(
-        { to: OTHER_ADDRESS, message: 'hello' },
-        makeCtx(),
+      expect(mockIdentityCache.setInboxId).toHaveBeenCalledWith(
+        OTHER_ADDRESS,
+        PEER_INBOX_ID,
       );
-
-      // Should display the resolved name "alice", not the raw address
-      expect(result.content[0].text).toContain('alice');
     });
   });
 
   describe('Error Handling', () => {
-    it('handles INVALID_RECIPIENT error', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { code: 'INVALID_RECIPIENT', message: 'Name not found: nonexistent' },
-        400,
-      ));
-
-      const result = await handleMessageRequest(
-        { to: 'nonexistent', message: 'hello' },
-        makeCtx(),
-      );
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Recipient not found');
-      expect(result.content[0].text).toContain('nonexistent');
-      expect(result.content[0].text).toContain('wallet_lookup_name');
-    });
-
-    it('handles 401 auth error', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { error: 'Missing or invalid X-Clara-Address header', code: 'AUTH_REQUIRED' },
-        401,
-      ));
+    it('handles XMTP send failure', async () => {
+      mockDm.sendText.mockRejectedValue(new Error('XMTP network error'));
 
       const result = await handleMessageRequest(
         { to: 'brian', message: 'hello' },
@@ -364,13 +349,11 @@ describe('handleMessageRequest', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Failed to send message');
+      expect(result.content[0].text).toContain('XMTP network error');
     });
 
-    it('handles generic proxy error with message field', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { message: 'Internal server error' },
-        500,
-      ));
+    it('handles non-Error failure', async () => {
+      mockDm.sendText.mockRejectedValue('something went wrong');
 
       const result = await handleMessageRequest(
         { to: 'brian', message: 'hello' },
@@ -378,33 +361,7 @@ describe('handleMessageRequest', () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Failed to send message');
-      expect(result.content[0].text).toContain('Internal server error');
-    });
-
-    it('handles network error gracefully', async () => {
-      mockFetch.mockRejectedValue(new Error('fetch failed'));
-
-      const result = await handleMessageRequest(
-        { to: 'brian', message: 'hello' },
-        makeCtx(),
-      );
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Failed to send message');
-      expect(result.content[0].text).toContain('fetch failed');
-    });
-
-    it('handles non-Error network failure', async () => {
-      mockFetch.mockRejectedValue('something went wrong');
-
-      const result = await handleMessageRequest(
-        { to: 'brian', message: 'hello' },
-        makeCtx(),
-      );
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Network error');
+      expect(result.content[0].text).toContain('Unknown error');
     });
   });
 });
@@ -414,16 +371,12 @@ describe('handleMessageRequest', () => {
 describe('handleInboxRequest', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetch.mockReset();
+    mockClient.conversations.sync.mockResolvedValue(undefined);
+    mockClient.conversations.listDms.mockReturnValue([]);
   });
 
   describe('Empty Inbox', () => {
     it('displays empty inbox message', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [],
-        totalUnread: 0,
-      }));
-
       const result = await handleInboxRequest({}, makeCtx());
 
       expect(result.isError).toBeUndefined();
@@ -431,284 +384,182 @@ describe('handleInboxRequest', () => {
       expect(result.content[0].text).toContain('No messages yet');
       expect(result.content[0].text).toContain('wallet_message');
     });
-
-    it('handles null threads as empty', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: null,
-        totalUnread: 0,
-      }));
-
-      const result = await handleInboxRequest({}, makeCtx());
-
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('No messages yet');
-    });
   });
 
   describe('Inbox with Threads', () => {
-    const makeThread = (overrides: Record<string, any> = {}) => ({
-      id: 'thread_abc',
-      otherParticipant: { address: OTHER_ADDRESS, name: 'brian' },
-      lastMessageAt: new Date().toISOString(),
-      lastMessagePreview: 'hey, are you around?',
-      messageCount: 3,
-      unreadCount: 1,
-      ...overrides,
-    });
+    function makeMockDm(overrides: Partial<{
+      id: string;
+      peerInboxId: string;
+      lastMsg: ReturnType<typeof makeMockMessage> | undefined;
+    }> = {}) {
+      const dm = {
+        id: overrides.id ?? 'dm-1',
+        peerInboxId: overrides.peerInboxId ?? PEER_INBOX_ID,
+        sync: vi.fn(),
+        lastMessage: vi.fn(async () => overrides.lastMsg ?? undefined),
+        messages: vi.fn(async () => []),
+        sendText: vi.fn(),
+      };
+      return dm;
+    }
 
-    it('displays threads with unread counts', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [makeThread()],
-        totalUnread: 1,
-      }));
+    it('displays threads with unread indicator', async () => {
+      const dm = makeMockDm({
+        lastMsg: makeMockMessage({ content: 'hey, are you around?' }),
+      });
+      mockClient.conversations.listDms.mockReturnValue([dm]);
+      mockIdentityCache.resolveInboxId.mockReturnValue({ claraName: 'brian', walletAddress: OTHER_ADDRESS });
 
       const result = await handleInboxRequest({}, makeCtx());
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Inbox');
-      expect(result.content[0].text).toContain('1 unread');
       expect(result.content[0].text).toContain('brian');
       expect(result.content[0].text).toContain('hey, are you around?');
     });
 
-    it('shows shortened address when participant has no name', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [makeThread({
-          otherParticipant: { address: OTHER_ADDRESS, name: null },
-          unreadCount: 0,
-        })],
-        totalUnread: 0,
-      }));
+    it('shows truncated inboxId when peer has no name', async () => {
+      const dm = makeMockDm({
+        peerInboxId: 'abcdef1234567890abcd',
+        lastMsg: makeMockMessage({ content: 'hello' }),
+      });
+      mockClient.conversations.listDms.mockReturnValue([dm]);
+      mockIdentityCache.resolveInboxId.mockReturnValue(undefined);
+      mockIdentityCache.getSenderName.mockReturnValue('abcdef...abcd');
 
       const result = await handleInboxRequest({}, makeCtx());
 
-      // Should show shortened address: 0x1234...7890
-      expect(result.content[0].text).toContain('0x1234');
-      expect(result.content[0].text).toContain('7890');
+      expect(result.content[0].text).toContain('abcdef');
     });
 
-    it('uses totalUnread from response', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [
-          makeThread({ unreadCount: 2 }),
-          makeThread({ id: 'thread_def', unreadCount: 3, otherParticipant: { address: '0xaaaa000000000000000000000000000000001111', name: 'alice' } }),
-        ],
-        totalUnread: 5,
-      }));
+    it('skips DMs with no messages', async () => {
+      const emptyDm = makeMockDm({ id: 'dm-empty', lastMsg: undefined });
+      const activeDm = makeMockDm({
+        id: 'dm-active',
+        lastMsg: makeMockMessage({ content: 'active' }),
+      });
+      mockClient.conversations.listDms.mockReturnValue([emptyDm, activeDm]);
+      mockIdentityCache.resolveInboxId.mockReturnValue({ claraName: 'alice', walletAddress: OTHER_ADDRESS });
 
       const result = await handleInboxRequest({}, makeCtx());
 
-      expect(result.content[0].text).toContain('5 unread');
+      expect(result.content[0].text).toContain('active');
     });
 
-    it('shows mailbox icon based on unread status', async () => {
-      // With unreads
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [makeThread({ unreadCount: 1 })],
-        totalUnread: 1,
-      }));
-
-      const withUnread = await handleInboxRequest({}, makeCtx());
-      expect(withUnread.content[0].text).toContain('\u{1F4EC}'); // mailbox with mail emoji
-
-      mockFetch.mockReset();
-
-      // Without unreads
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [makeThread({ unreadCount: 0 })],
-        totalUnread: 0,
-      }));
-
-      const noUnread = await handleInboxRequest({}, makeCtx());
-      expect(noUnread.content[0].text).toMatch(/\u{1F4ED}/u); // empty mailbox emoji
-    });
-
-    it('passes limit query parameter to proxy', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [],
-        totalUnread: 0,
-      }));
-
-      await handleInboxRequest({ limit: 5 }, makeCtx());
-
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toContain('limit=5');
-    });
-
-    it('defaults to limit=10 when not provided', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [],
-        totalUnread: 0,
-      }));
-
-      await handleInboxRequest({}, makeCtx());
-
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toContain('limit=10');
-    });
-
-    it('displays multiple threads in order returned by proxy', async () => {
+    it('sorts threads by most recent first', async () => {
       const now = Date.now();
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [
-          {
-            id: 'thread_newest',
-            otherParticipant: { address: OTHER_ADDRESS, name: 'alice' },
-            lastMessageAt: new Date(now).toISOString(),
-            lastMessagePreview: 'latest message',
-            messageCount: 5,
-            unreadCount: 2,
-          },
-          {
-            id: 'thread_older',
-            otherParticipant: { address: '0xaaaa000000000000000000000000000000001111', name: 'bob' },
-            lastMessageAt: new Date(now - 3600000).toISOString(),
-            lastMessagePreview: 'older message',
-            messageCount: 3,
-            unreadCount: 0,
-          },
-        ],
-        totalUnread: 2,
-      }));
+      const oldDm = makeMockDm({
+        id: 'dm-old',
+        peerInboxId: 'peer-old',
+        lastMsg: makeMockMessage({ content: 'old message', sentAt: new Date(now - 3600000) }),
+      });
+      const newDm = makeMockDm({
+        id: 'dm-new',
+        peerInboxId: 'peer-new',
+        lastMsg: makeMockMessage({ content: 'new message', sentAt: new Date(now) }),
+      });
+      mockClient.conversations.listDms.mockReturnValue([oldDm, newDm]);
+      mockIdentityCache.resolveInboxId
+        .mockReturnValueOnce({ claraName: 'bob', walletAddress: '0xbob' })
+        .mockReturnValueOnce({ claraName: 'alice', walletAddress: '0xalice' });
 
       const result = await handleInboxRequest({}, makeCtx());
       const text = result.content[0].text;
 
-      // Alice's thread should appear before Bob's (proxy returns sorted by lastMessageAt DESC)
-      const aliceIdx = text.indexOf('alice');
-      const bobIdx = text.indexOf('bob');
-      expect(aliceIdx).toBeGreaterThan(-1);
-      expect(bobIdx).toBeGreaterThan(-1);
-      expect(aliceIdx).toBeLessThan(bobIdx);
+      // New message should appear before old
+      const newIdx = text.indexOf('new message');
+      const oldIdx = text.indexOf('old message');
+      expect(newIdx).toBeLessThan(oldIdx);
     });
 
-    it('computes totalUnread from threads when response omits it', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [
-          makeThread({ unreadCount: 3 }),
-          makeThread({ id: 'thread_2', unreadCount: 2, otherParticipant: { address: '0xbbbb000000000000000000000000000000002222', name: 'carol' } }),
-        ],
-        // totalUnread intentionally omitted — handler falls back to summing thread unreads
-      }));
+    it('detects unread messages from others', async () => {
+      const dm = makeMockDm({
+        lastMsg: makeMockMessage({
+          content: 'unread msg',
+          senderInboxId: PEER_INBOX_ID, // Not from me
+        }),
+      });
+      mockClient.conversations.listDms.mockReturnValue([dm]);
+      mockIdentityCache.resolveInboxId.mockReturnValue({ claraName: 'brian', walletAddress: OTHER_ADDRESS });
 
       const result = await handleInboxRequest({}, makeCtx());
 
-      // Should sum: 3 + 2 = 5
-      expect(result.content[0].text).toContain('5 unread');
+      expect(result.content[0].text).toContain('unread');
+      expect(result.content[0].text).toContain('📬'); // mailbox with mail
+    });
+
+    it('marks own messages as read', async () => {
+      const dm = makeMockDm({
+        lastMsg: makeMockMessage({
+          content: 'my own msg',
+          senderInboxId: 'my-inbox-id', // From me
+        }),
+      });
+      mockClient.conversations.listDms.mockReturnValue([dm]);
+      mockIdentityCache.resolveInboxId.mockReturnValue({ claraName: 'brian', walletAddress: OTHER_ADDRESS });
+
+      const result = await handleInboxRequest({}, makeCtx());
+
+      expect(result.content[0].text).not.toContain('unread');
     });
   });
 
   describe('Auto-open Single Unread Thread', () => {
     it('auto-opens when exactly one unread thread exists', async () => {
-      const thread = {
-        id: 'thread_single',
-        otherParticipant: { address: OTHER_ADDRESS, name: 'seth' },
-        lastMessageAt: new Date().toISOString(),
-        lastMessagePreview: 'check out this PR',
-        messageCount: 2,
-        unreadCount: 1,
+      const msg = makeMockMessage({ content: 'check out this PR', senderInboxId: PEER_INBOX_ID });
+      const dm = {
+        id: 'dm-single',
+        peerInboxId: PEER_INBOX_ID,
+        sync: vi.fn(),
+        lastMessage: vi.fn(async () => msg),
+        messages: vi.fn(async () => [msg]),
+        sendText: vi.fn(),
       };
-
-      // First call: inbox
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        threads: [thread],
-        totalUnread: 1,
-      }));
-
-      // Second call: auto-open thread by ID (fetchThread internal)
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_single',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: 'seth' },
-          ],
-        },
-        messages: [
-          {
-            id: 'msg_1',
-            from: { address: OTHER_ADDRESS, name: 'seth' },
-            to: { address: TEST_ADDRESS, name: null },
-            body: 'check out this PR',
-            createdAt: new Date(Date.now() - 60000).toISOString(),
-          },
-        ],
-      }));
-
-      // Third call: mark-as-read (fire-and-forget from fetchThread)
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
+      mockClient.conversations.listDms.mockReturnValue([dm]);
+      mockIdentityCache.resolveInboxId.mockReturnValue({ claraName: 'seth', walletAddress: OTHER_ADDRESS });
+      mockIdentityCache.getSenderName.mockReturnValue('seth');
 
       const result = await handleInboxRequest({}, makeCtx());
 
       expect(result.isError).toBeUndefined();
-      // Should contain both inbox AND thread content
       expect(result.content[0].text).toContain('Inbox');
-      expect(result.content[0].text).toContain('seth');
       expect(result.content[0].text).toContain('Thread with seth');
       expect(result.content[0].text).toContain('check out this PR');
     });
 
     it('does NOT auto-open when multiple unread threads exist', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [
-          {
-            id: 'thread_a',
-            otherParticipant: { address: OTHER_ADDRESS, name: 'alice' },
-            lastMessageAt: new Date().toISOString(),
-            lastMessagePreview: 'hello',
-            messageCount: 1,
-            unreadCount: 1,
-          },
-          {
-            id: 'thread_b',
-            otherParticipant: { address: '0xaaaa000000000000000000000000000000001111', name: 'bob' },
-            lastMessageAt: new Date().toISOString(),
-            lastMessagePreview: 'hey',
-            messageCount: 1,
-            unreadCount: 1,
-          },
-        ],
-        totalUnread: 2,
-      }));
+      const dm1 = {
+        id: 'dm-a',
+        peerInboxId: 'peer-a',
+        sync: vi.fn(),
+        lastMessage: vi.fn(async () => makeMockMessage({ content: 'hello', senderInboxId: 'peer-a' })),
+        messages: vi.fn(async () => []),
+        sendText: vi.fn(),
+      };
+      const dm2 = {
+        id: 'dm-b',
+        peerInboxId: 'peer-b',
+        sync: vi.fn(),
+        lastMessage: vi.fn(async () => makeMockMessage({ content: 'hey', senderInboxId: 'peer-b' })),
+        messages: vi.fn(async () => []),
+        sendText: vi.fn(),
+      };
+      mockClient.conversations.listDms.mockReturnValue([dm1, dm2]);
+      mockIdentityCache.resolveInboxId
+        .mockReturnValueOnce({ claraName: 'alice', walletAddress: '0xalice' })
+        .mockReturnValueOnce({ claraName: 'bob', walletAddress: '0xbob' });
 
       const result = await handleInboxRequest({}, makeCtx());
 
-      // Should only show inbox, not auto-open any thread
       expect(result.content[0].text).toContain('Inbox');
-      // Should NOT contain "Thread with" since no auto-open
-      expect(result.content[0].text).not.toContain('Thread with');
-      // Only one fetch call (for inbox), not additional thread fetch
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-    });
-
-    it('does NOT auto-open when no unread threads exist', async () => {
-      mockFetch.mockResolvedValue(mockResponse({
-        threads: [
-          {
-            id: 'thread_a',
-            otherParticipant: { address: OTHER_ADDRESS, name: 'alice' },
-            lastMessageAt: new Date().toISOString(),
-            lastMessagePreview: 'hello',
-            messageCount: 1,
-            unreadCount: 0,
-          },
-        ],
-        totalUnread: 0,
-      }));
-
-      const result = await handleInboxRequest({}, makeCtx());
-
-      expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(result.content[0].text).not.toContain('Thread with');
     });
   });
 
   describe('Error Handling', () => {
-    it('handles proxy error response', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { error: 'Auth required', code: 'AUTH_REQUIRED' },
-        401,
-      ));
+    it('handles XMTP client initialization failure', async () => {
+      const { getOrInitXmtpClient } = await import('../../xmtp/singleton.js');
+      (getOrInitXmtpClient as any).mockRejectedValueOnce(new Error('XMTP init failed'));
 
       const result = await handleInboxRequest({}, makeCtx());
 
@@ -716,18 +567,8 @@ describe('handleInboxRequest', () => {
       expect(result.content[0].text).toContain('Failed to load inbox');
     });
 
-    it('handles network error', async () => {
-      mockFetch.mockRejectedValue(new Error('Network error'));
-
-      const result = await handleInboxRequest({}, makeCtx());
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Failed to load inbox');
-      expect(result.content[0].text).toContain('Network error');
-    });
-
-    it('handles non-Error network failure', async () => {
-      mockFetch.mockRejectedValue('connection reset');
+    it('handles conversation sync failure', async () => {
+      mockClient.conversations.sync.mockRejectedValue(new Error('Network error'));
 
       const result = await handleInboxRequest({}, makeCtx());
 
@@ -742,7 +583,12 @@ describe('handleInboxRequest', () => {
 describe('handleThreadRequest', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetch.mockReset();
+    mockClient.fetchInboxIdByIdentifier.mockResolvedValue(PEER_INBOX_ID);
+    mockClient.conversations.sync.mockResolvedValue(undefined);
+    mockIdentityCache.resolveName.mockReturnValue({
+      claraName: 'brian',
+      walletAddress: OTHER_ADDRESS,
+    });
   });
 
   describe('Input Validation', () => {
@@ -760,315 +606,108 @@ describe('handleThreadRequest', () => {
   });
 
   describe('Thread Display', () => {
-    it('displays thread with messages in chronological order', async () => {
+    it('displays thread with messages', async () => {
       const now = Date.now();
+      const messages = [
+        makeMockMessage({ id: 'msg-1', content: 'hey, whats up?', senderInboxId: PEER_INBOX_ID, sentAt: new Date(now - 120000) }),
+        makeMockMessage({ id: 'msg-2', content: 'can you review my PR?', senderInboxId: 'my-inbox-id', sentAt: new Date(now - 60000) }),
+        makeMockMessage({ id: 'msg-3', content: 'sounds good', senderInboxId: PEER_INBOX_ID, sentAt: new Date(now - 10000) }),
+      ];
 
-      // First call: thread by participant
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_abc',
-          participants: [
-            { address: TEST_ADDRESS, name: 'me' },
-            { address: OTHER_ADDRESS, name: 'brian' },
-          ],
-          messageCount: 3,
-        },
-        messages: [
-          // Proxy returns newest first — handler reverses for display
-          {
-            id: 'msg_3',
-            from: { address: OTHER_ADDRESS, name: 'brian' },
-            to: { address: TEST_ADDRESS, name: 'me' },
-            body: 'sounds good, shipping now',
-            createdAt: new Date(now - 10000).toISOString(),
-          },
-          {
-            id: 'msg_2',
-            from: { address: TEST_ADDRESS, name: 'me' },
-            to: { address: OTHER_ADDRESS, name: 'brian' },
-            body: 'can you review my PR?',
-            createdAt: new Date(now - 60000).toISOString(),
-          },
-          {
-            id: 'msg_1',
-            from: { address: OTHER_ADDRESS, name: 'brian' },
-            to: { address: TEST_ADDRESS, name: 'me' },
-            body: 'hey, whats up?',
-            createdAt: new Date(now - 120000).toISOString(),
-          },
-        ],
-      }));
-
-      // Second call: mark as read (fire-and-forget)
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
+      const dm = {
+        id: 'dm-thread',
+        peerInboxId: PEER_INBOX_ID,
+        sync: vi.fn(),
+        messages: vi.fn(async () => messages),
+        lastMessage: vi.fn(),
+        sendText: vi.fn(),
+      };
+      mockClient.conversations.getDmByInboxId.mockReturnValue(dm);
+      mockIdentityCache.getSenderName.mockReturnValue('brian');
 
       const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
 
       expect(result.isError).toBeUndefined();
       const text = result.content[0].text;
 
-      // Header
       expect(text).toContain('Thread with brian');
-
-      // Messages should appear in chronological order (oldest first)
-      const msg1Idx = text.indexOf('hey, whats up?');
-      const msg2Idx = text.indexOf('can you review my PR?');
-      const msg3Idx = text.indexOf('sounds good, shipping now');
-      expect(msg1Idx).toBeLessThan(msg2Idx);
-      expect(msg2Idx).toBeLessThan(msg3Idx);
+      expect(text).toContain('hey, whats up?');
+      expect(text).toContain('can you review my PR?');
+      expect(text).toContain('sounds good');
 
       // Own messages labeled as "you"
       expect(text).toContain('you');
-      expect(text).toContain('brian');
     });
 
-    it('defaults to limit=20 when not provided', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_default',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: 'brian' },
-          ],
-          messageCount: 0,
-        },
-        messages: [],
-      }));
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
+    it('shows no conversation message when DM not found', async () => {
+      mockClient.conversations.getDmByInboxId.mockReturnValue(undefined);
 
-      await handleThreadRequest({ with: 'brian' }, makeCtx());
+      const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
 
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toContain('limit=20');
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('No conversation with');
+      expect(result.content[0].text).toContain('brian');
+      expect(result.content[0].text).toContain('wallet_message');
     });
 
-    it('resolves bare name via proxy by-participant endpoint', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_byname',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: 'alice' },
-          ],
-          messageCount: 0,
-        },
-        messages: [],
-      }));
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
+    it('shows no conversation when recipient not in identity cache', async () => {
+      mockIdentityCache.resolveName.mockReturnValue(undefined);
+      // No XMTP identity either
+      mockClient.fetchInboxIdByIdentifier.mockResolvedValue(null);
 
-      await handleThreadRequest({ with: 'alice' }, makeCtx());
+      const result = await handleThreadRequest({ with: 'alice' }, makeCtx());
 
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toContain('with=alice');
+      expect(result.content[0].text).toContain('No conversation with');
+      expect(result.content[0].text).toContain('alice');
     });
 
-    it('resolves full ENS name via proxy', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_byens',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: 'alice' },
-          ],
-          messageCount: 0,
-        },
-        messages: [],
-      }));
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
+    it('resolves raw address for thread lookup', async () => {
+      mockIdentityCache.resolveWallet.mockReturnValue({
+        claraName: 'alice',
+        walletAddress: OTHER_ADDRESS,
+      });
 
-      await handleThreadRequest({ with: 'alice.claraid.eth' }, makeCtx());
+      const dm = {
+        id: 'dm-addr',
+        peerInboxId: PEER_INBOX_ID,
+        sync: vi.fn(),
+        messages: vi.fn(async () => []),
+        lastMessage: vi.fn(),
+        sendText: vi.fn(),
+      };
+      mockClient.conversations.getDmByInboxId.mockReturnValue(dm);
 
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toContain('with=alice.claraid.eth');
-    });
+      const result = await handleThreadRequest({ with: OTHER_ADDRESS }, makeCtx());
 
-    it('resolves raw address via proxy', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_byaddr',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: null },
-          ],
-          messageCount: 0,
-        },
-        messages: [],
-      }));
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
-
-      await handleThreadRequest({ with: OTHER_ADDRESS }, makeCtx());
-
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toContain(`with=${encodeURIComponent(OTHER_ADDRESS)}`);
-    });
-
-    it('sends correct query to proxy', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_test',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: 'brian' },
-          ],
-          messageCount: 0,
-        },
-        messages: [],
-      }));
-
-      // mark-as-read fire-and-forget
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
-
-      await handleThreadRequest({ with: 'brian', limit: 30 }, makeCtx());
-
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toContain('/api/v1/threads/by-participant');
-      expect(url).toContain('with=brian');
-      expect(url).toContain('limit=30');
-
-      const headers = mockFetch.mock.calls[0][1].headers as Headers;
-      expect(headers.get('X-Clara-Address')).toBe(TEST_ADDRESS);
-    });
-
-    it('marks thread as read after opening', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_toread',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: 'brian' },
-          ],
-          messageCount: 1,
-        },
-        messages: [{
-          id: 'msg_1',
-          from: { address: OTHER_ADDRESS, name: 'brian' },
-          to: { address: TEST_ADDRESS, name: null },
-          body: 'hello',
-          createdAt: new Date().toISOString(),
-        }],
-      }));
-
-      // This is the mark-as-read call
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
-
-      await handleThreadRequest({ with: 'brian' }, makeCtx());
-
-      // Wait for fire-and-forget mark-as-read call
-      await new Promise((r) => setTimeout(r, 10));
-
-      // Should have made a POST to /threads/:id/read
-      const markReadCall = mockFetch.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].includes('/read'),
-      );
-      expect(markReadCall).toBeDefined();
-      expect(markReadCall![1].method).toBe('POST');
-      expect(markReadCall![0]).toContain('thread_toread');
+      expect(mockClient.fetchInboxIdByIdentifier).toHaveBeenCalledWith({
+        identifier: OTHER_ADDRESS,
+        identifierKind: expect.anything(),
+      });
+      expect(result.content[0].text).toContain('Thread with alice');
     });
 
     it('displays empty thread message', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_empty',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: 'brian' },
-          ],
-          messageCount: 0,
-        },
-        messages: [],
-      }));
-
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
+      const dm = {
+        id: 'dm-empty',
+        peerInboxId: PEER_INBOX_ID,
+        sync: vi.fn(),
+        messages: vi.fn(async () => []),
+        lastMessage: vi.fn(),
+        sendText: vi.fn(),
+      };
+      mockClient.conversations.getDmByInboxId.mockReturnValue(dm);
 
       const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('No messages yet');
     });
-
-    it('shows shortened address when sender has no name', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({
-        thread: {
-          id: 'thread_noname',
-          participants: [
-            { address: TEST_ADDRESS, name: null },
-            { address: OTHER_ADDRESS, name: null },
-          ],
-          messageCount: 1,
-        },
-        messages: [{
-          id: 'msg_anon',
-          from: { address: OTHER_ADDRESS, name: null },
-          to: { address: TEST_ADDRESS, name: null },
-          body: 'anon message',
-          createdAt: new Date().toISOString(),
-        }],
-      }));
-
-      mockFetch.mockResolvedValueOnce(mockResponse({ success: true }));
-
-      const result = await handleThreadRequest({ with: OTHER_ADDRESS }, makeCtx());
-
-      // Should use shortened address for the unnamed other participant
-      expect(result.content[0].text).toContain('0x1234');
-      expect(result.content[0].text).toContain('7890');
-    });
   });
 
   describe('Error Handling', () => {
-    it('handles 404 with helpful message', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { error: 'No conversation found', code: 'NOT_FOUND' },
-        404,
-      ));
-
-      const result = await handleThreadRequest({ with: 'alice' }, makeCtx());
-
-      // 404 is NOT isError — it's a helpful info message
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('No conversation with');
-      expect(result.content[0].text).toContain('alice');
-      expect(result.content[0].text).toContain('wallet_message');
-    });
-
-    it('handles 403 not-a-participant error', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { error: 'Not a participant in this thread', code: 'FORBIDDEN' },
-        403,
-      ));
-
-      const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Failed to open thread');
-    });
-
-    it('handles generic proxy error', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { error: 'Server error', code: 'INTERNAL' },
-        500,
-      ));
-
-      const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Failed to open thread');
-    });
-
-    it('handles 401 auth error', async () => {
-      mockFetch.mockResolvedValue(mockResponse(
-        { error: 'Missing or invalid X-Clara-Address header', code: 'AUTH_REQUIRED' },
-        401,
-      ));
-
-      const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Failed to open thread');
-    });
-
-    it('handles network error', async () => {
-      mockFetch.mockRejectedValue(new Error('Connection refused'));
+    it('handles XMTP client failure', async () => {
+      const { getOrInitXmtpClient } = await import('../../xmtp/singleton.js');
+      (getOrInitXmtpClient as any).mockRejectedValueOnce(new Error('Connection refused'));
 
       const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
 
@@ -1077,13 +716,14 @@ describe('handleThreadRequest', () => {
       expect(result.content[0].text).toContain('Connection refused');
     });
 
-    it('handles non-Error network failure', async () => {
-      mockFetch.mockRejectedValue(undefined);
+    it('handles non-Error failure', async () => {
+      const { getOrInitXmtpClient } = await import('../../xmtp/singleton.js');
+      (getOrInitXmtpClient as any).mockRejectedValueOnce(undefined);
 
       const result = await handleThreadRequest({ with: 'brian' }, makeCtx());
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Network error');
+      expect(result.content[0].text).toContain('Unknown error');
     });
   });
 });
