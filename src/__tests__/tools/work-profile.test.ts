@@ -38,11 +38,18 @@ function makeDataUri(obj: Record<string, unknown>): string {
 }
 
 const AGENT_METADATA = {
+  type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
   name: 'TestBot',
   skills: ['solidity', 'typescript'],
-  services: ['code-review', 'audits'],
+  services: [
+    { name: 'code-review', endpoint: 'https://example.com/review' },
+    { name: 'audits', endpoint: 'https://example.com/audit' },
+  ],
   description: 'A test agent for unit tests',
-  registeredAt: '2026-01-15T12:00:00Z',
+  x402Support: true,
+  active: true,
+  supportedTrust: ['reputation'],
+  registrations: [],
 };
 
 const AGENT_URI = makeDataUri(AGENT_METADATA);
@@ -149,19 +156,13 @@ describe('work_profile', () => {
       expect(text).toContain('3 review');
     });
 
-    it('shows services in profile', async () => {
+    it('shows services in profile (ERC-8004 format)', async () => {
       setupAgentMocks(42);
 
       const result = await handleWorkProfile({ agentId: 42 });
-      expect(result.content[0].text).toContain('code-review, audits');
-    });
-
-    it('shows registration date', async () => {
-      setupAgentMocks(42);
-
-      const result = await handleWorkProfile({ agentId: 42 });
-      // registeredAt: '2026-01-15T12:00:00Z' → formatted date
-      expect(result.content[0].text).toContain('Registered');
+      // New format: services are { name, endpoint } objects, displayed as "name: endpoint"
+      expect(result.content[0].text).toContain('code-review: https://example.com/review');
+      expect(result.content[0].text).toContain('audits: https://example.com/audit');
     });
 
     it('shows description', async () => {

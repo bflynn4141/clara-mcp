@@ -85,16 +85,25 @@ export async function handleWorkProfile(
     const resolvedAgentId = agent.agentId;
     const agentAddr = agent.owner;
 
-    // Parse extra metadata from the agentURI for services/registeredAt
-    let services: string[] = [];
-    let registeredAt: string | undefined;
+    // Parse extra metadata from the agentURI for services
+    // ERC-8004 Registration File format: services is an array of { name, endpoint } objects
+    let serviceDescriptions: string[] = [];
     try {
       const b64Prefix = 'data:application/json;base64,';
       if (agent.agentURI.startsWith(b64Prefix)) {
         const json = Buffer.from(agent.agentURI.slice(b64Prefix.length), 'base64').toString('utf-8');
         const metadata = JSON.parse(json);
-        services = (metadata.services as string[]) || [];
-        registeredAt = metadata.registeredAt as string | undefined;
+        const rawServices = metadata.services;
+        if (Array.isArray(rawServices)) {
+          serviceDescriptions = rawServices.map((svc: unknown) => {
+            if (typeof svc === 'string') return svc; // Legacy format
+            if (svc && typeof svc === 'object' && 'name' in svc) {
+              const s = svc as { name: string; endpoint?: string };
+              return s.endpoint ? `${s.name}: ${s.endpoint}` : s.name;
+            }
+            return String(svc);
+          });
+        }
       }
     } catch (err) {
       console.warn('[work_profile] Failed to parse agent URI metadata:', err instanceof Error ? err.message : err);
@@ -123,13 +132,8 @@ export async function handleWorkProfile(
 
     lines.push(`│ **Skills:** ${agent.skills.join(', ') || 'none listed'}`);
 
-    if (services.length > 0) {
-      lines.push(`│ **Services:** ${services.join(', ')}`);
-    }
-
-    if (registeredAt) {
-      const regDate = new Date(registeredAt).toLocaleDateString();
-      lines.push(`│ **Registered:** ${regDate}`);
+    if (serviceDescriptions.length > 0) {
+      lines.push(`│ **Services:** ${serviceDescriptions.join(', ')}`);
     }
 
     // Reputation section
