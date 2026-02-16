@@ -145,6 +145,7 @@ export function getBountyContracts(): BountyContracts {
 // ─── ERC-8004 ABI Fragments ─────────────────────────────────────────
 
 export const IDENTITY_REGISTRY_ABI = [
+  // ─── Registration (3 overloads per ERC-8004) ────────────────────
   {
     inputs: [{ name: 'agentURI', type: 'string' }],
     name: 'register',
@@ -152,6 +153,14 @@ export const IDENTITY_REGISTRY_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
+  {
+    inputs: [],
+    name: 'register',
+    outputs: [{ name: 'agentId', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  // ─── ERC-721 Core ──────────────────────────────────────────────
   {
     inputs: [{ name: 'tokenId', type: 'uint256' }],
     name: 'ownerOf',
@@ -173,18 +182,9 @@ export const IDENTITY_REGISTRY_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
-  // ERC-721 Enumerable — resolve address → agentId
-  {
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'index', type: 'uint256' },
-    ],
-    name: 'tokenOfOwnerByIndex',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  // Update the URI for an existing agent (owner only)
+  // ─── ERC-8004: Agent URI ───────────────────────────────────────
+  // On-chain function is `updateURI` (spec says `setAgentURI` but
+  // the canonical deployment uses this name)
   {
     inputs: [
       { name: 'agentId', type: 'uint256' },
@@ -193,6 +193,48 @@ export const IDENTITY_REGISTRY_ABI = [
     name: 'updateURI',
     outputs: [],
     stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  // ─── ERC-8004: Metadata Key-Value Store ────────────────────────
+  {
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'metadataKey', type: 'string' },
+    ],
+    name: 'getMetadata',
+    outputs: [{ name: '', type: 'bytes' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'metadataKey', type: 'string' },
+      { name: 'metadataValue', type: 'bytes' },
+    ],
+    name: 'setMetadata',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  // ─── ERC-8004: Agent Wallet Delegation ─────────────────────────
+  {
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'newWallet', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'signature', type: 'bytes' },
+    ],
+    name: 'setAgentWallet',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'agentId', type: 'uint256' }],
+    name: 'getAgentWallet',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
     type: 'function',
   },
 ] as const;
@@ -217,6 +259,16 @@ export const REPUTATION_REGISTRY_ABI = [
   {
     inputs: [
       { name: 'agentId', type: 'uint256' },
+      { name: 'feedbackIndex', type: 'uint64' },
+    ],
+    name: 'revokeFeedback',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
       { name: 'clientAddresses', type: 'address[]' },
       { name: 'tag1', type: 'string' },
       { name: 'tag2', type: 'string' },
@@ -226,6 +278,23 @@ export const REPUTATION_REGISTRY_ABI = [
       { name: 'count', type: 'uint64' },
       { name: 'summaryValue', type: 'int128' },
       { name: 'summaryValueDecimals', type: 'uint8' },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'clientAddress', type: 'address' },
+      { name: 'feedbackIndex', type: 'uint64' },
+    ],
+    name: 'readFeedback',
+    outputs: [
+      { name: 'value', type: 'int128' },
+      { name: 'valueDecimals', type: 'uint8' },
+      { name: 'tag1', type: 'string' },
+      { name: 'tag2', type: 'string' },
+      { name: 'isRevoked', type: 'bool' },
     ],
     stateMutability: 'view',
     type: 'function',
@@ -500,6 +569,16 @@ export const IDENTITY_REGISTRY_EVENTS = [
       { name: 'agentId', type: 'uint256', indexed: true },
       { name: 'newURI', type: 'string', indexed: false },
       { name: 'updatedBy', type: 'address', indexed: true },
+    ],
+  },
+  // ERC-8004: Emitted when metadata key-value pair is set
+  {
+    type: 'event' as const,
+    name: 'MetadataSet',
+    inputs: [
+      { name: 'agentId', type: 'uint256', indexed: true },
+      { name: 'metadataKey', type: 'string', indexed: false },
+      { name: 'metadataValue', type: 'bytes', indexed: false },
     ],
   },
 ] as const;

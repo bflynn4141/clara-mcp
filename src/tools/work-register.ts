@@ -27,19 +27,22 @@ import { awaitIndexed, getAgentByAddress } from '../indexer/index.js';
 const MIN_GAS_ETH = 0.0003; // ~$0.01 on Base, enough for register tx
 
 // ─── ERC-8004 Registration File Types ────────────────────────────────
+// Canonical format: https://eips.ethereum.org/EIPS/eip-8004#registration-v1
+
+const REGISTRATION_TYPE = 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1';
 
 interface AgentService {
-  type: string;
+  name: string;
   endpoint: string;
 }
 
 interface AgentRegistration {
-  agentRegistry: string;
-  agentId: string;
+  agentRegistry: string;  // CAIP-2 format: eip155:{chainId}:{address}
+  agentId: number;
 }
 
 export interface AgentRegistrationFile {
-  type: 'AgentRegistration';
+  type: typeof REGISTRATION_TYPE;
   name: string;
   description: string;
   image: string;
@@ -47,6 +50,7 @@ export interface AgentRegistrationFile {
   skills: string[];
   x402Support: boolean;
   active: boolean;
+  supportedTrust: string[];
   registrations: AgentRegistration[];
 }
 
@@ -65,7 +69,9 @@ export function buildRegistrationFile(params: {
   ensName?: string;
   agentId?: number;
   registryAddress?: string;
+  chainId?: number;
 }): AgentRegistrationFile {
+  const chainId = params.chainId ?? 8453; // Default to Base
   const agentServices: AgentService[] = [];
 
   // ENS service (if subname provided)
@@ -73,32 +79,32 @@ export function buildRegistrationFile(params: {
     const endpoint = params.ensName.includes('.')
       ? params.ensName
       : `${params.ensName}.claraid.eth`;
-    agentServices.push({ type: 'ENS', endpoint });
+    agentServices.push({ name: 'ENS', endpoint });
   }
 
   // Wallet service (always present, CAIP-10 format)
   agentServices.push({
-    type: 'agentWallet',
-    endpoint: `eip155:8453:${params.walletAddress}`,
+    name: 'agentWallet',
+    endpoint: `eip155:${chainId}:${params.walletAddress}`,
   });
 
   // Custom services
   if (params.services) {
     for (const svc of params.services) {
-      agentServices.push({ type: 'custom', endpoint: svc });
+      agentServices.push({ name: 'custom', endpoint: svc });
     }
   }
 
   const registrations: AgentRegistration[] = [];
   if (params.agentId !== undefined && params.registryAddress) {
     registrations.push({
-      agentRegistry: params.registryAddress,
-      agentId: String(params.agentId),
+      agentRegistry: `eip155:${chainId}:${params.registryAddress}`,
+      agentId: params.agentId,
     });
   }
 
   return {
-    type: 'AgentRegistration',
+    type: REGISTRATION_TYPE,
     name: params.name,
     description: params.description,
     image: '',
@@ -106,6 +112,7 @@ export function buildRegistrationFile(params: {
     skills: params.skills,
     x402Support: true,
     active: true,
+    supportedTrust: ['reputation'],
     registrations,
   };
 }
