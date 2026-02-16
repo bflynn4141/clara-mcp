@@ -27,8 +27,10 @@ export class ClaraIdentityCache {
    * claraid.eth names with their wallet addresses.
    */
   async seedFromDirectory(proxyUrl: string): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
     try {
-      const response = await fetch(`${proxyUrl}/ens/list`);
+      const response = await fetch(`${proxyUrl}/ens/list`, { signal: controller.signal });
       if (!response.ok) return;
 
       const data = await response.json() as { names: Array<{ name: string; address: string }> };
@@ -40,6 +42,8 @@ export class ClaraIdentityCache {
       }
     } catch {
       // Non-fatal — cache starts empty, gets populated as we encounter users
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

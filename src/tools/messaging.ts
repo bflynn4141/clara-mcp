@@ -14,7 +14,8 @@ import type { ToolResult, ToolContext } from '../middleware.js';
 import { getOrInitXmtpClient, getIdentityCache } from '../xmtp/singleton.js';
 import { ClaraGroupManager } from '../xmtp/groups.js';
 import { encodeClaraMessage, extractText } from '../xmtp/content-types.js';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFile, writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -121,10 +122,11 @@ function truncate(str: string, max: number): string {
 
 const CURSORS_PATH = join(homedir(), '.clara', 'xmtp', 'read-cursors.json');
 
-function loadCursors(): Record<string, number> {
+async function loadCursors(): Promise<Record<string, number>> {
   try {
     if (existsSync(CURSORS_PATH)) {
-      return JSON.parse(readFileSync(CURSORS_PATH, 'utf-8'));
+      const data = await readFile(CURSORS_PATH, 'utf-8');
+      return JSON.parse(data);
     }
   } catch {
     // Corrupt file — start fresh
@@ -132,11 +134,11 @@ function loadCursors(): Record<string, number> {
   return {};
 }
 
-function saveCursor(conversationId: string, timestampMs: number): void {
-  const cursors = loadCursors();
+async function saveCursor(conversationId: string, timestampMs: number): Promise<void> {
+  const cursors = await loadCursors();
   cursors[conversationId] = timestampMs;
-  mkdirSync(join(homedir(), '.clara', 'xmtp'), { recursive: true });
-  writeFileSync(CURSORS_PATH, JSON.stringify(cursors), { mode: 0o600 });
+  await mkdir(join(homedir(), '.clara', 'xmtp'), { recursive: true });
+  await writeFile(CURSORS_PATH, JSON.stringify(cursors), { mode: 0o600 });
 }
 
 // ─── Recipient Resolution ────────────────────────────────
@@ -278,7 +280,7 @@ export async function handleInboxRequest(
   try {
     const client = await getOrInitXmtpClient(ctx);
     const cache = getIdentityCache();
-    const cursors = loadCursors();
+    const cursors = await loadCursors();
 
     // Sync conversations from network, then list DMs
     await client.conversations.sync();
@@ -372,7 +374,7 @@ export async function handleInboxRequest(
       const threadLines = await formatThread(client, auto.dm, auto.peerName, 20);
       if (threadLines) {
         // Mark as read
-        saveCursor(auto.dm.id, Date.now());
+        await saveCursor(auto.dm.id, Date.now());
         lines.push('');
         lines.push(threadLines);
       }
@@ -448,7 +450,7 @@ export async function handleThreadRequest(
     const threadText = await formatThread(client, dm, resolved.displayName, limit);
 
     // Mark as read
-    saveCursor(dm.id, Date.now());
+    await saveCursor(dm.id, Date.now());
 
     return {
       content: [{ type: 'text', text: threadText || `── 💬 Thread with ${resolved.displayName} ──\n\n  No messages yet.\n\n──────────────────────────────────────────────────` }],

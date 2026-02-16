@@ -58,28 +58,35 @@ export async function createClaraXmtpClient(opts: ClaraXmtpClientOptions): Promi
       identifierKind: IDENTIFIER_KIND_ETHEREUM,
     }),
     signMessage: async (message: string): Promise<Uint8Array> => {
-      // Sign via Clara proxy -> Para MPC
+      // Sign via Clara proxy -> Para MPC (10s timeout)
       const messageHex = '0x' + Buffer.from(message, 'utf-8').toString('hex');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
 
-      const response = await fetch(`${proxyUrl}/xmtp/sign`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Clara-Address': walletAddress,
-        },
-        body: JSON.stringify({ walletId, data: messageHex }),
-      });
+      try {
+        const response = await fetch(`${proxyUrl}/xmtp/sign`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Clara-Address': walletAddress,
+          },
+          body: JSON.stringify({ walletId, data: messageHex }),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`XMTP signing failed: ${response.status} - ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`XMTP signing failed: ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json() as { signature: string };
+        const sig = result.signature.startsWith('0x')
+          ? result.signature.slice(2)
+          : result.signature;
+        return Buffer.from(sig, 'hex');
+      } finally {
+        clearTimeout(timeout);
       }
-
-      const result = await response.json() as { signature: string };
-      const sig = result.signature.startsWith('0x')
-        ? result.signature.slice(2)
-        : result.signature;
-      return Buffer.from(sig, 'hex');
     },
   };
 
