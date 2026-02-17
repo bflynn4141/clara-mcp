@@ -98,14 +98,7 @@ import {
   executePreparedToolDefinition,
   handleExecutePreparedRequest,
 } from './tools/execute-prepared.js';
-import {
-  claimAirdropToolDefinition,
-  handleClaimAirdropRequest,
-} from './tools/claim-airdrop.js';
-
-// ENS Tools
-import { ensCheckToolDefinition, handleEnsCheckRequest } from './tools/ens-check.js';
-import { ensRegisterToolDefinition, handleEnsRegisterRequest } from './tools/ens-register.js';
+// Names (Clara subnames via proxy KV)
 import {
   registerNameToolDefinition, handleRegisterNameRequest,
   lookupNameToolDefinition, handleLookupNameRequest,
@@ -121,10 +114,6 @@ import { xmtpStatusToolDefinition, handleXmtpStatus } from './tools/xmtp-status.
 
 // Onboarding
 import { sponsorGasToolDefinition, handleSponsorGas } from './tools/sponsor-gas.js';
-
-// Agent Identity (ERC-8004)
-import { workRegisterToolDefinition, handleWorkRegister } from './tools/work-register.js';
-import { workProfileToolDefinition, handleWorkProfile } from './tools/work-profile.js';
 
 // Providers
 import { initProviders } from './providers/index.js';
@@ -251,35 +240,9 @@ registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
   gasExtractor: executePreparedGasExtractor,
 });
 
-// CLARA Airdrop (auth required — uses wallet address for claim)
-registerTool(claimAirdropToolDefinition, handleClaimAirdropRequest, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
+// ─── Names ────────────────────────────────────────────────────────────
 
-// ─── ENS Tools ───────────────────────────────────────────────────────
-
-// ENS name lookup (public — no auth needed)
-registerTool(ensCheckToolDefinition, handleEnsCheckRequest, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// ENS name registration (auth required, on Ethereum mainnet)
-registerTool(ensRegisterToolDefinition, handleEnsRegisterRequest, {
-  gasPreflight: 'check',
-  gasExtractor: (args) => {
-    const action = (args.action as string) || 'commit';
-    // commit tx is cheap (just stores a hash), register tx sends ETH
-    if (action === 'commit') {
-      return { chain: 'ethereum' as SupportedChain, gasLimit: 100_000n };
-    }
-    // register tx: ~300k gas + the ETH value for the name price
-    return { chain: 'ethereum' as SupportedChain, gasLimit: 300_000n };
-  },
-});
-
-// Claim a free subname (auth required, no gas — offchain via CCIP-Read)
+// Claim a free Clara subname (auth required, no gas — proxy KV write)
 registerTool(registerNameToolDefinition, handleRegisterNameRequest, {
   requiresAuth: true,
   touchesSession: true,
@@ -329,19 +292,6 @@ registerTool(xmtpStatusToolDefinition, handleXmtpStatus, {
   touchesSession: false,
 });
 
-// ─── Agent Identity (ERC-8004) ───────────────────────────────────────
-
-// Agent registration (auth, on-chain tx)
-registerTool(workRegisterToolDefinition, handleWorkRegister, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
-});
-
-// View agent profile (public)
-registerTool(workProfileToolDefinition, handleWorkProfile, {
-  requiresAuth: false,
-  touchesSession: false,
-});
 
 debugLog(`TOOLS_REGISTERED count=${getAllToolDefinitions().length}`);
 

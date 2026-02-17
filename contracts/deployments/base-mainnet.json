@@ -1,7 +1,0 @@
-{
-  "chainId": 8453,
-  "network": "base-mainnet",
-  "deployer": "0xC291a1cFCD8d99350CA336505A300ed62122E9df",
-  "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-  "reputationRegistry": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63"
-}

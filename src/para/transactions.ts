@@ -23,7 +23,7 @@ import { getSession } from '../storage/session.js';
 import { createParaAccount } from './account.js';
 import { getRpcUrl, type SupportedChain } from '../config/chains.js';
 import { estimateGas } from './gas.js';
-import { decodeContractError, formatContractError } from '../utils/contract-errors.js';
+import { decodeContractError } from '../utils/contract-errors.js';
 
 /**
  * Module-level nonce tracker

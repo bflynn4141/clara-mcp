@@ -28,10 +28,3 @@ coverage/
 *.tmp
 *.temp
 
-# Foundry build artifacts
-contracts/out/
-contracts/cache/
-contracts/broadcast/
-
-# Contract environment (private keys, API keys)
-contracts/.env

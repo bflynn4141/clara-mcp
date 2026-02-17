@@ -1,15 +1,15 @@
 # Clara
 
-> An MCP server that gives AI agents an identity, a wallet, and encrypted messaging.
+> An MCP server that gives AI agents a wallet, a name, and encrypted messaging.
 
-Clara is the infrastructure layer for autonomous AI agents. Register your agent on-chain with the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) identity standard, claim a human-readable name (`brian.claraid.eth`), message other agents via XMTP, and pay for API access with [x402](https://x402.org) — all through the [Model Context Protocol](https://modelcontextprotocol.io). DeFi capabilities (send, swap, yield, contract execution) are built in as infrastructure.
+Clara is the infrastructure layer for autonomous AI agents. Claim a human-readable name (`brian.claraid.eth`), message other agents via XMTP, and pay for API access with [x402](https://x402.org) — all through the [Model Context Protocol](https://modelcontextprotocol.io). DeFi capabilities (send, swap, yield, contract execution) are built in as infrastructure.
 
 ```
-1. Identity    →  Register as an on-chain agent (ERC-8004)
-2. Name        →  Claim a free ENS name (brian.claraid.eth)
-3. Messaging   →  E2E encrypted messaging via XMTP
-4. Payments    →  Pay for APIs with x402, send tokens by name
-5. DeFi        →  Send, swap, sign, analyze — all built in
+1. Wallet     →  Create a wallet (email-based, portable)
+2. Name       →  Claim a free ENS name (brian.claraid.eth)
+3. Messaging  →  E2E encrypted messaging via XMTP
+4. Payments   →  Pay for APIs with x402, send tokens by name
+5. DeFi       →  Send, swap, sign, analyze — all built in
 ```
 
 ## Quick Start
@@ -42,46 +42,6 @@ cd clara-mcp && npm install && npm run build
 
 ---
 
-## ERC-8004: The Agent Identity Standard
-
-[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) defines a standard for AI agent identities on Ethereum. It answers a simple question: **how does an AI agent prove who it is and what it can do?**
-
-Each registered agent gets:
-- An **on-chain identity** (NFT in the IdentityRegistry on Base)
-- A **registration file** describing the agent's services, skills, and capabilities
-
-### Registration File (ERC-8004)
-
-When you call `work_register`, Clara creates a structured registration file and stores it on-chain:
-
-```json
-{
-  "type": "AgentRegistration",
-  "name": "Brian",
-  "description": "Smart contract security researcher",
-  "services": [
-    { "type": "ENS", "endpoint": "brian.claraid.eth" },
-    { "type": "agentWallet", "endpoint": "eip155:8453:0x8744..." }
-  ],
-  "skills": ["solidity", "auditing"],
-  "x402Support": true,
-  "active": true,
-  "registrations": [
-    { "agentRegistry": "0x8004...", "agentId": "42" }
-  ]
-}
-```
-
-This file is the agent's portable identity. Other agents, protocols, and dApps can read it to discover capabilities, verify identity, and route payments.
-
-### Why On-Chain?
-
-- **Verifiable** — Anyone can check if an agent is registered and what skills it claims
-- **Composable** — Other protocols can build on top of agent identities (hiring, reputation, access control)
-- **Portable** — The identity moves with the wallet, not the platform
-
----
-
 ## Onboarding
 
 New agents go from zero to fully operational in under a minute:
@@ -89,47 +49,14 @@ New agents go from zero to fully operational in under a minute:
 ```
 wallet_setup               →  Create wallet (email-based, portable)
 wallet_register_name       →  Claim brian.claraid.eth (free, instant)
-work_register              →  On-chain agent identity (ERC-8004)
+wallet_sponsor_gas         →  Get free gas for first transactions
 ```
 
 After onboarding, your agent has:
 - A **wallet** on Base (Para-managed, recoverable via email)
 - A **name** people can send tokens to (`brian.claraid.eth` resolves in MetaMask, Rainbow, etc.)
-- An **agent profile** with skills, description, and an ERC-8004 registration file
 
-Gas is sponsored for new agents — `wallet_sponsor_gas` sends a micro ETH transfer to cover registration costs.
-
----
-
-## Agent Identity
-
-### `work_register`
-
-Register as an ERC-8004 agent. Creates your on-chain identity.
-
-```json
-{"name": "CodeBot", "skills": ["solidity", "typescript"], "description": "Smart contract auditor"}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | **Yes** | Agent display name |
-| `skills` | string[] | **Yes** | Skill tags (e.g., `["solidity", "auditing"]`) |
-| `description` | string | No | Short agent description |
-| `services` | string[] | No | Service endpoints |
-| `ensName` | string | No | Clara name to link (e.g., `"brian"` for brian.claraid.eth) |
-
-### `work_profile`
-
-View an agent's ERC-8004 registration profile.
-
-```json
-{"agentId": 42}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `agentId` | number | **Yes** | Agent ID to look up |
+Gas is sponsored for new agents — `wallet_sponsor_gas` sends a micro ETH transfer to cover initial costs.
 
 ---
 
@@ -177,7 +104,7 @@ Read a conversation thread with a specific contact.
 | `with` | string | **Yes** | Contact: Clara name, wallet address, or XMTP inbox ID |
 | `limit` | number | No | Max messages (default: 20) |
 
-### `xmtp_status`
+### `wallet_xmtp_status`
 
 Check XMTP connection status and identity info.
 
@@ -210,7 +137,7 @@ Claim a free ENS subname under claraid.eth. No gas needed — names are resolved
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | string | **Yes** | Subname label (e.g., `"brian"` for brian.claraid.eth) |
-| `agentId` | number | No | ERC-8004 agent ID to link |
+| `agentId` | number | No | Agent ID to link |
 
 ### `wallet_lookup_name`
 
@@ -234,32 +161,6 @@ Request free gas for onboarding. Sends ~0.0005 ETH to your wallet on Base.
 ```
 
 No parameters — uses connected wallet address. One sponsorship per address.
-
-### `wallet_ens_check`
-
-Check ENS domain availability and registration status on Ethereum mainnet.
-
-```json
-{"name": "example.eth"}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | **Yes** | ENS name to check |
-
-### `wallet_register_ens`
-
-Register a top-level `.eth` domain on Ethereum mainnet. Two-step process: commit, then register.
-
-```json
-{"name": "example.eth", "action": "commit"}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | **Yes** | Domain to register |
-| `action` | string | **Yes** | `"commit"` (step 1) or `"register"` (step 2, after 60s) |
-| `duration` | number | No | Registration years (default: 1) |
 
 ---
 
@@ -491,14 +392,6 @@ Sign EIP-712 structured data.
 | `primaryType` | string | **Yes** | Primary type |
 | `message` | object | **Yes** | Data to sign |
 
-### `wallet_claim_airdrop`
-
-Check eligibility and claim CLARA token airdrop. No parameters — uses connected wallet.
-
-```json
-{}
-```
-
 ### `wallet_logout`
 
 Clear wallet session.
@@ -525,7 +418,7 @@ Claude Code ──▶ Clara MCP Server ──▶ clara-proxy ──▶ Para (sig
 | Component | Role |
 |-----------|------|
 | **Clara MCP Server** | Tool dispatch, spending limits, orchestration |
-| **clara-proxy** | Cloudflare Worker. Para API proxy, ENS gateway, agent file hosting, gas sponsorship |
+| **clara-proxy** | Cloudflare Worker. Para API proxy, ENS gateway, gas sponsorship |
 | **Para** | Key management. MPC-based transaction signing |
 | **Herd** | Contract intelligence. ABI lookup, token discovery, holder analysis |
 | **XMTP** | Peer-to-peer messaging. E2E encrypted, local DB storage |
@@ -561,7 +454,6 @@ Claude Code ──▶ Clara MCP Server ──▶ clara-proxy ──▶ Para (sig
 |------|---------|
 | `~/.clara/session.enc` | Encrypted wallet session (AES-256-GCM) |
 | `~/.clara/spending.json` | Spending limits and history |
-| `~/.clara/agent.json` | Agent ID and registration info |
 | `~/.clara/xmtp/{addr}.db3` | XMTP message database (encrypted) |
 | `~/.clara/xmtp/{addr}.key` | XMTP DB encryption key |
 
@@ -585,7 +477,7 @@ Claude Code ──▶ Clara MCP Server ──▶ clara-proxy ──▶ Para (sig
 npm install          # Install dependencies
 npm run build        # TypeScript → dist/
 npm run dev          # Development mode (hot reload)
-npm test             # Run tests (vitest, 247 tests)
+npm test             # Run tests (vitest)
 npm run typecheck    # Type check only
 ```
 

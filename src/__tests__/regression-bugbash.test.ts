@@ -173,8 +173,7 @@ describe('T10: MCP config precedence', () => {
    * Files affected:
    * - ~/.mcp.json (project-level) — missing 3 Tenderly env vars
    * - ~/.claude.json (global) — has Tenderly vars but gets overridden
-   * - src/providers/tenderly.ts — isTenderlyConfigured() returns false
-   * - src/intelligence/safety.ts:431 — falls back to basic estimateGas
+   * - Tenderly provider not loaded — falls back to basic estimateGas
    */
 
   it('documents that Tenderly requires all 3 env vars', () => {

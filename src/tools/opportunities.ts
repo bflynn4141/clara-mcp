@@ -20,8 +20,6 @@ import { checkNFTPositions, type NFTPosition } from '../services/nft-positions.j
 import type { SupportedChain } from '../config/chains.js';
 import { getProviderRegistry } from '../providers/index.js';
 import { isProvidersInitialized } from '../providers/index.js';
-import { fetchClaraStakingData, getClaraContracts } from '../config/clara-contracts.js';
-import type { Hex } from 'viem';
 
 const YIELD_CHAINS = ['base', 'ethereum', 'arbitrum', 'optimism'] as const;
 
@@ -264,50 +262,6 @@ export async function handleOpportunitiesRequest(
         lines.push(`Analyzed ${actionsResult.holdersAnalyzed} top holders — no actionable protocol contracts detected.`);
       } else {
         lines.push(`No protocol-native actions detected for ${asset.toUpperCase()}.`);
-      }
-    }
-
-    // ── CLARA Staking Section ──
-    const isClara = asset.toUpperCase() === 'CLARA';
-    if (isClara || walletAddress) {
-      try {
-        const stakingAddress = walletAddress || (await resolveWalletAddress());
-        if (stakingAddress) {
-          const claraStaking = await fetchClaraStakingData(stakingAddress as Hex);
-          const userHoldsClara = claraStaking && parseFloat(claraStaking.claraBalance) > 0;
-
-          if (isClara || userHoldsClara) {
-            const contracts = getClaraContracts();
-            lines.push('');
-            lines.push(`### CLARA Staking (${claraStaking?.network || 'testnet'})`);
-            lines.push('');
-            lines.push(`Stake CLARA to earn a share of ALL x402 fees from Clara users.`);
-
-            if (claraStaking) {
-              const totalStakedNum = parseFloat(claraStaking.totalStaked);
-              const claraBalNum = parseFloat(claraStaking.claraBalance);
-              const stakedNum = parseFloat(claraStaking.stakedBalance);
-
-              lines.push(`- **Total Staked:** ${totalStakedNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CLARA`);
-              lines.push(`- **Your Balance:** ${claraBalNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CLARA`);
-
-              if (stakedNum > 0) {
-                lines.push(`- **Your Stake:** ${stakedNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CLARA (${claraStaking.sharePercent.toFixed(2)}%)`);
-                lines.push(`- **Claimable:** ${parseFloat(claraStaking.claimableUsdc).toFixed(6)} USDC`);
-              }
-
-              if (claraBalNum > 0 && stakedNum === 0) {
-                lines.push('');
-                lines.push(`> 💡 Stake: \`wallet_call contract="${contracts.claraStaking}" function="stake(uint256)" args=["${BigInt(Math.floor(claraBalNum)).toString()}000000000000000000"] chain="base"\``);
-              }
-            } else if (isClara) {
-              lines.push(`- Contract: \`${contracts.claraStaking}\``);
-              lines.push(`- _Could not fetch live staking data_`);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[opportunities] CLARA staking data fetch failed:', err instanceof Error ? err.message : err);
       }
     }
 

@@ -6,7 +6,6 @@ export default defineConfig({
     exclude: [
       'node_modules/**',
       'dist/**',
-      'contracts/**',  // Exclude Solidity/Foundry tests
     ],
   },
 });
