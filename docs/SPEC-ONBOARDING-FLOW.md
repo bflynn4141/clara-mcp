@@ -239,24 +239,17 @@ Clara (internally):
   2. Verify agent exists → check indexer for agentId 42
      → { name: "Brian", skills: ["solidity"], reputation: 4.8/5 }
 
-  3. Create bounty → work_post(
+  3. Send payment → wallet_send(
+       to="brian",
        amount="100",
-       token="USDC",
-       deadline="1 week",
-       taskSummary="Ship the ENS integration",
-       payee="brian"   // Resolved to 0x8744...
+       token="USDC"
      )
 
   4. Result:
-     "✅ Bounty posted for Brian (brian.claraid.eth)
-      Amount: 100 USDC
-      Deadline: Feb 15, 2026
-      Bond: 10 USDC (poster) + 10 USDC (worker)
-
-      Brian can claim this with `work_claim`"
+     "✅ Sent 100 USDC to Brian (brian.claraid.eth)"
 ```
 
-**Note:** The bounty contract itself stores the raw address (0x8744...), not the ENS name. The ENS name is for UX only. This is important — the contract doesn't depend on ENS resolution at execution time.
+**Note:** The on-chain transaction uses the resolved address (0x8744...), not the ENS name. ENS resolution happens at the Clara layer before transaction construction.
 
 ---
 

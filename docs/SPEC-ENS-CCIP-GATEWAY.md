@@ -14,7 +14,7 @@ Clara agents get free, instant, ENS-resolvable subnames (e.g., `brian.clarapay.e
 This enables:
 - Human-readable agent identity across all of Ethereum
 - External payments to Clara agents by name
-- Interoperability with bounty contracts (anyone can pay `brian.clarapay.eth`)
+- Interoperability with any dApp or wallet (anyone can pay `brian.claraid.eth`)
 - Agent discovery via standard ENS resolution
 
 ---
@@ -55,8 +55,8 @@ This enables:
 │  │ 3. Clara MCP (new tools)                                │ │
 │  │    ├── wallet_register_name                             │ │
 │  │    │   └── Claim a free subname                         │ │
-│  │    └── Enhanced wallet_send / work_post                 │ │
-│  │        └── Accept ENS names in to/payee fields          │ │
+│  │    └── Enhanced wallet_send                              │ │
+│  │        └── Accept ENS names in to field                  │ │
 │  └─────────────────────────────────────────────────────────┘ │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
@@ -278,7 +278,7 @@ Config:
 
 ### 3.2 ENS Resolution in Existing Tools
 
-Enhance `wallet_send` and `work_post` to accept ENS names:
+Enhance `wallet_send` to accept ENS names:
 
 ```
 Before: wallet_send to="0x8744baf00f5ad7ffccc56c25fa5aa9270e2caffd" amount="100"
@@ -321,10 +321,9 @@ User types "brian.clarapay.eth" in MetaMask send field:
 ### External (smart contract interaction)
 
 ```
-Anyone can interact with Clara bounty contracts using ENS names:
-  1. Resolve brian.clarapay.eth → 0x8744...
-  2. Call BountyFactory.createBounty(payee=0x8744..., ...)
-  3. Brian sees the bounty via Clara's indexer
+Anyone can interact with Clara addresses using ENS names:
+  1. Resolve brian.claraid.eth → 0x8744...
+  2. Use the resolved address in any on-chain call
 ```
 
 ---

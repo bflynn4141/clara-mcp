@@ -86,7 +86,7 @@ describe('Stale nonce in multi-transaction workflows', () => {
   });
 
   it('should use incremented nonce for second transaction in a sequence', async () => {
-    // Transaction 1: ERC-20 approve (like work-post.ts:137-142)
+    // Transaction 1: ERC-20 approve (typical multi-step DeFi workflow)
     const nonce1 = await getNonceForTransaction(mockPublicClient, TEST_ADDRESS);
     expect(nonce1).toBe(42);
 

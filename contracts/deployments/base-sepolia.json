@@ -14,17 +14,5 @@
     "identityRegistry": "0xAee21064f9f7c24fd052CC3598A60Cc50591d1B3",
     "reputationRegistry": "0xC7b13F1C1CA4E0DD42cc371fB31d86E75a84F042",
     "usdc": "0xfC4568A4d4cdF01eb929346E215889a5d12d0113"
-  },
-  "bounty": {
-    "implementation": "0x399DFfF0D8E5d436a46FD140F99f857B46830825",
-    "factory": "0xB53989afAac1Ab17f9a5d9920B48B90e93AFB73C",
-    "deployedAt": "2026-02-08T00:00:00Z"
-  },
-  "challenge": {
-    "implementation": "0x39A61474C93280f7489e288BA4503fb97c03b342",
-    "factory": "0x76B61D018Dc6697954cEDc7C0854b66e942783D8",
-    "deployBlock": 37504827,
-    "deployedAt": "2026-02-10T00:00:00Z",
-    "verified": true
   }
 }
