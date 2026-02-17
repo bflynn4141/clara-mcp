@@ -366,9 +366,10 @@ export async function handleSendRequest(
     }
 
     if (receipt.status !== 'success') {
-      throw new Error(
-        `Transaction failed on-chain. ` +
-        `Check details: ${getExplorerTxUrl(chainName, txHash)}`
+      throw new ClaraError(
+        ClaraErrorCode.TX_REVERTED,
+        `Transaction failed on-chain.`,
+        `Check details: ${getExplorerTxUrl(chainName, txHash)}`,
       );
     }
 

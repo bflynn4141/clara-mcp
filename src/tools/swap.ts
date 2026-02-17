@@ -556,9 +556,10 @@ export async function handleSwapRequest(
     }
 
     if (receipt.status !== 'success') {
-      throw new Error(
-        `Swap transaction failed on-chain. ` +
-        `Check details: ${getExplorerTxUrl(chain, swapResult.txHash)}`
+      throw new ClaraError(
+        ClaraErrorCode.TX_REVERTED,
+        `Swap transaction failed on-chain.`,
+        `Check details: ${getExplorerTxUrl(chain, swapResult.txHash)}`,
       );
     }
 

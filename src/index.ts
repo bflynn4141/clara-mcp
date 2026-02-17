@@ -120,45 +120,13 @@ import { initProviders } from './providers/index.js';
 
 
 // Gas preflight extractors
-import { parseUnits } from 'viem';
 import type { GasPreflightExtractor } from './middleware.js';
 import type { SupportedChain } from './config/chains.js';
 
-/**
- * Extract chain and value from wallet_send args for gas estimation.
- * Native transfers: gasLimit 21k + txValue. ERC-20: gasLimit 200k.
- */
-const sendGasExtractor: GasPreflightExtractor = (args) => {
-  const chain = (args.chain as string) || 'base';
-  const amount = args.amount as string | undefined;
-  const token = args.token as string | undefined;
-
-  // Only native transfers have txValue; ERC-20 transfers are just gas
-  const txValue = !token && amount ? parseUnits(amount, 18) : 0n;
-  const gasLimit = token ? 200_000n : 21_000n;
-
-  return { chain: chain as SupportedChain, txValue, gasLimit };
-};
-
-/**
- * Extract chain from wallet_swap args (only for execute mode).
- * Quotes don't send transactions, so skip preflight.
- */
-const swapGasExtractor: GasPreflightExtractor = (args) => {
-  const action = (args.action as string) || 'quote';
-  if (action !== 'execute') return null;
-
-  const chain = (args.chain as string) || 'base';
-  return { chain: chain as SupportedChain, gasLimit: 500_000n };
-};
-
-/**
- * Extract chain from wallet_executePrepared (always check).
- * Best-effort: defaults to 'base' since chain is stored in prepared tx.
- */
-const executePreparedGasExtractor: GasPreflightExtractor = () => {
-  return { chain: 'base', gasLimit: 300_000n };
-};
+// Note: wallet_send, wallet_swap, and wallet_executePrepared handle their own
+// gas preflight checks internally with more precise parameters (correct chain,
+// txValue, gas limits). Middleware-level extractors were removed to avoid
+// redundant RPC calls and imprecise early gates (e.g., hardcoded 'base' chain).
 
 /**
  * Extract chain from wallet_call args (warn only — simulation may fail).
@@ -192,8 +160,6 @@ registerTool(dashboardToolDefinition, handleDashboardRequest);
 registerTool(historyToolDefinition, handleHistoryRequest);
 registerTool(sendToolDefinition, handleSendRequest, {
   checksSpending: true,
-  gasPreflight: 'check',
-  gasExtractor: sendGasExtractor,
 });
 
 // Signing (auth required)
@@ -221,10 +187,7 @@ registerTool(analyzeContractToolDefinition, handleAnalyzeContract, {
 });
 
 // DeFi (auth required for swap, public for opportunities)
-registerTool(swapToolDefinition, handleSwapRequest, {
-  gasPreflight: 'check',
-  gasExtractor: swapGasExtractor,
-});
+registerTool(swapToolDefinition, handleSwapRequest);
 registerTool(opportunitiesToolDefinition, handleOpportunitiesRequest, {
   requiresAuth: false,
   touchesSession: false,
@@ -235,10 +198,7 @@ registerTool(callToolDefinition, handleCallRequest, {
   gasPreflight: 'warn',
   gasExtractor: callGasExtractor,
 });
-registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
-  gasPreflight: 'check',
-  gasExtractor: executePreparedGasExtractor,
-});
+registerTool(executePreparedToolDefinition, handleExecutePreparedRequest);
 
 // ─── Names ────────────────────────────────────────────────────────────
 

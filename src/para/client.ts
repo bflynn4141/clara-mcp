@@ -409,7 +409,7 @@ async function reconnectExistingWallet(email: string): Promise<SetupResult> {
 
   const wallet = data.wallet || data.wallets?.[0];
   if (!wallet) {
-    throw new Error('Could not find existing wallet for email. Try wallet_restore instead.');
+    throw new Error('Could not find existing wallet for email. Try wallet_setup with your email instead.');
   }
 
   // Save session with reconnected wallet
@@ -448,7 +448,7 @@ async function reconnectViaWalletList(email: string): Promise<SetupResult> {
     throw new Error(
       `Cannot reconnect to existing wallet. ` +
         `The wallet for ${email} exists but we cannot retrieve it. ` +
-        `Try clearing the session and using wallet_restore with your email.`
+        `Try clearing the session and using wallet_setup with your email.`
     );
   }
 
@@ -463,7 +463,7 @@ async function reconnectViaWalletList(email: string): Promise<SetupResult> {
   if (!wallet) {
     throw new Error(
       `Wallet exists for ${email} but could not be retrieved. ` +
-        `Please contact support or try wallet_restore.`
+        `Please contact support or try wallet_setup with your email.`
     );
   }
 

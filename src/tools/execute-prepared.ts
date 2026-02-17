@@ -188,7 +188,7 @@ export async function handleExecutePreparedRequest(
         content: [
           {
             type: 'text',
-            text: `❌ **Insufficient funds** for this transaction.\n\nCheck your balance with \`wallet_balance\` and ensure you have enough for gas.`,
+            text: `❌ **Insufficient funds** for this transaction.\n\nCheck your balance with \`wallet_dashboard\` and ensure you have enough for gas.`,
           },
         ],
         isError: true,

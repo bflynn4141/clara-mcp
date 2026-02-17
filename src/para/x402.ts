@@ -85,7 +85,6 @@ function getTokenDomain(
 const SUPPORTED_NETWORKS: Record<string, number> = {
   'base': 8453,
   'base-mainnet': 8453,
-  'base-sepolia': 84532,
   'ethereum': 1,
   'ethereum-mainnet': 1,
   'arbitrum': 42161,
