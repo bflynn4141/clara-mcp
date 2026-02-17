@@ -24,12 +24,12 @@ describe('CLARA_V1 Content Types', () => {
 
     it('includes context when provided', () => {
       const encoded = encodeClaraMessage({
-        text: 'claimed bounty',
-        context: { bountyId: 42, action: 'bounty-claim' },
+        text: 'payment sent',
+        context: { txHash: '0xabc123', action: 'payment' },
       });
       const decoded = JSON.parse(encoded.slice('CLARA_V1:'.length));
-      expect(decoded.context.bountyId).toBe(42);
-      expect(decoded.context.action).toBe('bounty-claim');
+      expect(decoded.context.txHash).toBe('0xabc123');
+      expect(decoded.context.action).toBe('payment');
     });
 
     it('includes replyTo when provided', () => {
@@ -80,15 +80,15 @@ describe('CLARA_V1 Content Types', () => {
 
     it('roundtrips with encodeClaraMessage', () => {
       const original = {
-        text: 'bounty submitted',
-        context: { bountyId: 7, action: 'bounty-submit' as const, senderName: 'alice' },
+        text: 'payment received',
+        context: { txHash: '0xdef456', action: 'payment' as const, senderName: 'alice' },
         replyTo: 'msg_xyz',
       };
       const encoded = encodeClaraMessage(original);
       const decoded = decodeClaraMessage(encoded);
       expect(decoded).not.toBeNull();
       expect(decoded!.text).toBe(original.text);
-      expect(decoded!.context?.bountyId).toBe(7);
+      expect(decoded!.context?.txHash).toBe('0xdef456');
       expect(decoded!.replyTo).toBe('msg_xyz');
     });
   });

@@ -122,36 +122,13 @@ import { xmtpStatusToolDefinition, handleXmtpStatus } from './tools/xmtp-status.
 // Onboarding
 import { sponsorGasToolDefinition, handleSponsorGas } from './tools/sponsor-gas.js';
 
-// Work/Bounty Tools (ERC-8004)
+// Agent Identity (ERC-8004)
 import { workRegisterToolDefinition, handleWorkRegister } from './tools/work-register.js';
-import { workPostToolDefinition, handleWorkPost } from './tools/work-post.js';
-import { workBrowseToolDefinition, handleWorkBrowse } from './tools/work-browse.js';
-import { workClaimToolDefinition, handleWorkClaim } from './tools/work-claim.js';
-import { workSubmitToolDefinition, handleWorkSubmit } from './tools/work-submit.js';
-import { workApproveToolDefinition, handleWorkApprove } from './tools/work-approve.js';
-import { workCancelToolDefinition, handleWorkCancel } from './tools/work-cancel.js';
-import { workRejectToolDefinition, handleWorkReject } from './tools/work-reject.js';
-import { workListToolDefinition, handleWorkList } from './tools/work-list.js';
-import { workReputationToolDefinition, handleWorkReputation } from './tools/work-reputation.js';
-import { workRateToolDefinition, handleWorkRate } from './tools/work-rate.js';
-import { workFindToolDefinition, handleWorkFind } from './tools/work-find.js';
 import { workProfileToolDefinition, handleWorkProfile } from './tools/work-profile.js';
-import { workApproveBondToolDefinition, handleWorkApproveBond } from './tools/work-approve-bond.js';
-
-// Challenge Tools (ERC-8004 Challenges)
-import { challengeBrowseToolDefinition, handleChallengeBrowse } from './tools/challenge-browse.js';
-import { challengeDetailToolDefinition, handleChallengeDetail } from './tools/challenge-detail.js';
-import { challengeSubmitToolDefinition, handleChallengeSubmit } from './tools/challenge-submit.js';
-import { challengeScoreToolDefinition, handleChallengeScore } from './tools/challenge-score.js';
-import { challengeLeaderboardToolDefinition, handleChallengeLeaderboard } from './tools/challenge-leaderboard.js';
-import { challengePostToolDefinition, handleChallengePost } from './tools/challenge-post.js';
-import { challengeClaimToolDefinition, handleChallengeClaim } from './tools/challenge-claim.js';
 
 // Providers
 import { initProviders } from './providers/index.js';
 
-// Bounty Indexer
-import { initIndexer } from './indexer/index.js';
 
 // Gas preflight extractors
 import { parseUnits } from 'viem';
@@ -352,7 +329,7 @@ registerTool(xmtpStatusToolDefinition, handleXmtpStatus, {
   touchesSession: false,
 });
 
-// ─── Work/Bounty Tools (ERC-8004) ────────────────────────────────────
+// ─── Agent Identity (ERC-8004) ───────────────────────────────────────
 
 // Agent registration (auth, on-chain tx)
 registerTool(workRegisterToolDefinition, handleWorkRegister, {
@@ -360,126 +337,10 @@ registerTool(workRegisterToolDefinition, handleWorkRegister, {
   gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
 });
 
-// Post bounty (auth, spending check, on-chain tx)
-registerTool(workPostToolDefinition, handleWorkPost, {
-  checksSpending: true,
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 300_000n }),
-});
-
-// Claim bounty (auth, on-chain tx)
-registerTool(workClaimToolDefinition, handleWorkClaim, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Approve bond for claiming (auth, on-chain tx)
-registerTool(workApproveBondToolDefinition, handleWorkApproveBond, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Submit work (auth, on-chain tx)
-registerTool(workSubmitToolDefinition, handleWorkSubmit, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Approve submission (auth, on-chain tx + reputation)
-registerTool(workApproveToolDefinition, handleWorkApprove, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
-});
-
-// Cancel bounty (auth, on-chain tx)
-registerTool(workCancelToolDefinition, handleWorkCancel, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Reject submission (auth, on-chain tx)
-registerTool(workRejectToolDefinition, handleWorkReject, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 150_000n }),
-});
-
-// List your bounties (auth needed for wallet address, no gas)
-registerTool(workListToolDefinition, handleWorkList, {
-  gasPreflight: 'none',
-});
-
-// Rate an agent (auth, on-chain tx)
-registerTool(workRateToolDefinition, handleWorkRate, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 150_000n }),
-});
-
-// Browse bounties (public)
-registerTool(workBrowseToolDefinition, handleWorkBrowse, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// Search agent directory (public)
-registerTool(workFindToolDefinition, handleWorkFind, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
 // View agent profile (public)
 registerTool(workProfileToolDefinition, handleWorkProfile, {
   requiresAuth: false,
   touchesSession: false,
-});
-
-// View agent reputation (public)
-registerTool(workReputationToolDefinition, handleWorkReputation, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// ─── Challenge Tools (ERC-8004 Challenges) ──────────────────────────
-
-// Browse challenges (public)
-registerTool(challengeBrowseToolDefinition, handleChallengeBrowse, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// View challenge details (public)
-registerTool(challengeDetailToolDefinition, handleChallengeDetail, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// View challenge leaderboard (public)
-registerTool(challengeLeaderboardToolDefinition, handleChallengeLeaderboard, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// Submit solution (auth, on-chain tx)
-registerTool(challengeSubmitToolDefinition, handleChallengeSubmit, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
-});
-
-// Check your score (auth, read-only)
-registerTool(challengeScoreToolDefinition, handleChallengeScore, {
-  gasPreflight: 'none',
-});
-
-// Post challenge (auth, spending check, on-chain two-tx)
-registerTool(challengePostToolDefinition, handleChallengePost, {
-  checksSpending: true,
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 400_000n }),
-});
-
-// Claim prize (auth, on-chain tx)
-registerTool(challengeClaimToolDefinition, handleChallengeClaim, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
 });
 
 debugLog(`TOOLS_REGISTERED count=${getAllToolDefinitions().length}`);
@@ -492,15 +353,6 @@ function validateConfig(): string[] {
   if (process.env.HERD_ENABLED === 'true') {
     if (!process.env.HERD_API_URL) errors.push('HERD_ENABLED=true but HERD_API_URL not set');
     if (!process.env.HERD_API_KEY) errors.push('HERD_ENABLED=true but HERD_API_KEY not set');
-  }
-
-  // AUDIT-001: CLARA_NETWORK=testnet causes Sepolia addresses on Base mainnet
-  const network = process.env.CLARA_NETWORK;
-  if (network && network !== 'mainnet') {
-    errors.push(
-      `CLARA_NETWORK="${network}" — bounty/challenge tools will target wrong contracts! ` +
-      'Remove this env var or set to "mainnet". See docs/AUDIT-001-CHAIN-MISMATCH.md'
-    );
   }
 
   // Optional but helpful warnings for features that will fail without them
@@ -571,13 +423,6 @@ async function main(): Promise<void> {
     // Don't exit - core wallet tools still work without providers
   });
 
-  // Initialize bounty indexer in background (non-blocking)
-  // Syncs BountyFactory + Bounty events from chain, then polls every 15s.
-  // If this fails, work_browse/work_list return empty results (not errors).
-  initIndexer().catch((error) => {
-    console.error('[indexer] Initialization error:', error);
-    debugLog(`INDEXER_INIT_ERROR: ${error instanceof Error ? error.message : error}`);
-  });
 }
 
 main().catch((error) => {

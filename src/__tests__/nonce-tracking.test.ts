@@ -2,16 +2,14 @@
  * Nonce Tracking Regression Test
  *
  * BUG: When signAndSendTransaction is called multiple times in sequence
- * (e.g., approve + createBounty in work_post), each call independently
+ * (e.g., approve + swap in a multi-tx workflow), each call independently
  * fetches the nonce via publicClient.getTransactionCount(). Since the
  * first transaction hasn't been mined yet, the second call gets the
  * SAME nonce, causing "nonce too low" or "replacement transaction
  * underpriced" errors.
  *
- * Root cause: transactions.ts:217-218 fetches nonce from on-chain state
+ * Root cause: transactions.ts fetches nonce from on-chain state
  * with no local nonce tracking or increment between sequential calls.
- *
- * Affected flow: work-post.ts:137-170 (approve tx → create bounty tx)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -96,7 +94,7 @@ describe('Stale nonce in multi-transaction workflows', () => {
     // The chain still reports nonce=42 for getTransactionCount (pending state).
     // The mock simulates this by always returning 42.
 
-    // Transaction 2: createBounty (like work-post.ts:165-170)
+    // Transaction 2: second tx in the workflow
     const nonce2 = await getNonceForTransaction(mockPublicClient, TEST_ADDRESS);
 
     // With nonce tracking, the second transaction uses nonce 43 (42 + 1).
@@ -133,9 +131,9 @@ describe('Stale nonce in multi-transaction workflows', () => {
   });
 
   it('should track nonces even when transactions are sent in rapid succession (no mining delay)', async () => {
-    // This test simulates the exact work_post flow:
+    // This test simulates a multi-tx flow:
     // 1. signAndSendTransaction for approve
-    // 2. signAndSendTransaction for createBounty (immediately after, no await for mining)
+    // 2. signAndSendTransaction for the main operation (immediately after, no await for mining)
 
     const usedNonces: number[] = [];
 

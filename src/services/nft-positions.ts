@@ -5,7 +5,7 @@
  * Used to detect veNFT locks, Uniswap V3 LP positions, etc.
  *
  * General-purpose: works for ANY ERC-721 contract, not just ve-tokens.
- * Queries `balanceOf(address)` via RPC — no indexer needed.
+ * Queries `balanceOf(address)` via RPC.
  */
 
 import { createPublicClient, http, type Hex } from 'viem';

@@ -10,21 +10,31 @@
  * 2. Upload to clara-proxy after getting agentId (rich, web-accessible)
  */
 
-import { encodeFunctionData, createPublicClient, http, formatEther, type Hex } from 'viem';
+import { encodeFunctionData, createPublicClient, http, formatEther, parseEventLogs, type Hex } from 'viem';
 import { base } from 'viem/chains';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolContext, ToolResult } from '../middleware.js';
 import { signAndSendTransaction } from '../para/transactions.js';
-import { getBountyContracts, IDENTITY_REGISTRY_ABI } from '../config/clara-contracts.js';
+import { getAgentContracts, IDENTITY_REGISTRY_ABI } from '../config/clara-contracts.js';
 import { getChainId, getExplorerTxUrl, getRpcUrl } from '../config/chains.js';
 import {
   toDataUri,
   formatAddress,
   saveLocalAgentId,
 } from './work-helpers.js';
-import { awaitIndexed, getAgentByAddress } from '../indexer/index.js';
 
 const MIN_GAS_ETH = 0.0003; // ~$0.01 on Base, enough for register tx
+
+/** Register event ABI for parsing tx receipt logs */
+const REGISTER_EVENT_ABI = [{
+  type: 'event' as const,
+  name: 'Register',
+  inputs: [
+    { name: 'agentId', type: 'uint256', indexed: true },
+    { name: 'owner', type: 'address', indexed: true },
+    { name: 'agentURI', type: 'string', indexed: false },
+  ],
+}] as const;
 
 // ─── ERC-8004 Registration File Types ────────────────────────────────
 // Canonical format: https://eips.ethereum.org/EIPS/eip-8004#registration-v1
@@ -119,7 +129,7 @@ export function buildRegistrationFile(params: {
 
 export const workRegisterToolDefinition: Tool = {
   name: 'work_register',
-  description: `Register as an agent in the Clara bounty marketplace (ERC-8004).
+  description: `Register as an agent in the Clara network (ERC-8004).
 
 Creates your on-chain agent identity so you can post and claim bounties.
 You only need to register once — your agent ID persists across sessions.
@@ -256,7 +266,7 @@ export async function handleWorkRegister(
   }
 
   try {
-    const contracts = getBountyContracts();
+    const contracts = getAgentContracts();
 
     // ─── Build ERC-8004 Registration File ───────────────────────────
     const registrationFile = buildRegistrationFile({
@@ -284,15 +294,25 @@ export async function handleWorkRegister(
       chainId: getChainId('base'),
     });
 
-    // ─── Phase 2: Sync indexer + upload to proxy ────────────────────
+    // ─── Phase 2: Parse agentId from tx receipt + upload to proxy ───
     let agentId: number | null = null;
     let proxyUrl: string | null = null;
 
     try {
-      await awaitIndexed(result.txHash);
-      const agent = await getAgentByAddress(ctx.walletAddress);
-      if (agent) {
-        agentId = agent.agentId;
+      const receiptClient = createPublicClient({ chain: base, transport: http(getRpcUrl('base')) });
+      const receipt = await receiptClient.getTransactionReceipt({ hash: result.txHash as `0x${string}` });
+
+      // Parse Register event from logs using the ABI
+      const registerEvents = parseEventLogs({
+        abi: REGISTER_EVENT_ABI,
+        logs: receipt.logs,
+        eventName: 'Register',
+      });
+      if (registerEvents.length > 0) {
+        agentId = Number((registerEvents[0] as { args: { agentId: bigint } }).args.agentId);
+      }
+
+      if (agentId !== null) {
         saveLocalAgentId(agentId, name);
 
         // Now that we have agentId, rebuild with registrations back-link
@@ -372,7 +392,6 @@ export async function handleWorkRegister(
     lines.push('');
     lines.push(`**Transaction:** [${result.txHash.slice(0, 10)}...](${explorerUrl})`);
     lines.push('');
-    lines.push('You can now post bounties with `work_post` or browse available work with `work_browse`.');
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],

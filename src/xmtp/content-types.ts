@@ -14,9 +14,8 @@ export interface ClaraMessagePayload {
 
   /** Structured context for agent-to-agent messages */
   context?: {
-    bountyId?: number;
     txHash?: string;
-    action?: 'bounty-claim' | 'bounty-submit' | 'bounty-approve' | 'payment' | 'general';
+    action?: 'payment' | 'general';
     senderName?: string;
     agentId?: number;
   };
