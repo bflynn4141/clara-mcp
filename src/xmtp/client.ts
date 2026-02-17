@@ -83,6 +83,12 @@ export async function createClaraXmtpClient(opts: ClaraXmtpClientOptions): Promi
         const sig = result.signature.startsWith('0x')
           ? result.signature.slice(2)
           : result.signature;
+
+        // ECDSA signature must be exactly 65 bytes (r:32 + s:32 + v:1) = 130 hex chars
+        if (!/^[0-9a-fA-F]{130}$/.test(sig)) {
+          throw new Error(`XMTP signing returned invalid signature (expected 130 hex chars, got ${sig.length})`);
+        }
+
         return Buffer.from(sig, 'hex');
       } finally {
         clearTimeout(timeout);
