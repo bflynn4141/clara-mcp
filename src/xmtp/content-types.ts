@@ -53,17 +53,19 @@ export function isClaraMessage(raw: string): boolean {
  * Extract human-readable text from any XMTP message.
  * Handles CLARA_V1, GLORP_V1, and plain text.
  */
+const MAX_DISPLAY_LEN = 4000;
+
 export function extractText(raw: string): string {
   const clara = decodeClaraMessage(raw);
-  if (clara) return clara.text;
+  if (clara) return clara.text.slice(0, MAX_DISPLAY_LEN);
 
   // Interop: Glorp users can message Clara users
   if (raw.startsWith('GLORP_V1:')) {
     try {
       const parsed = JSON.parse(raw.slice('GLORP_V1:'.length));
-      if (typeof parsed.text === 'string') return parsed.text;
+      if (typeof parsed.text === 'string') return parsed.text.slice(0, MAX_DISPLAY_LEN);
     } catch { /* fall through */ }
   }
 
-  return raw;
+  return raw.slice(0, MAX_DISPLAY_LEN);
 }

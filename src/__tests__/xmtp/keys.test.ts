@@ -13,6 +13,8 @@ const mockExistsSync = vi.fn();
 const mockReadFile = vi.fn();
 const mockWriteFile = vi.fn();
 const mockMkdir = vi.fn();
+const mockFileHandle = { writeFile: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined) };
+const mockOpen = vi.fn().mockResolvedValue(mockFileHandle);
 
 vi.mock('node:fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
@@ -22,6 +24,7 @@ vi.mock('node:fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  open: (...args: unknown[]) => mockOpen(...args),
 }));
 
 vi.mock('node:os', () => ({
@@ -35,6 +38,9 @@ describe('XMTP Key Management', () => {
     vi.clearAllMocks();
     mockMkdir.mockResolvedValue(undefined);
     mockWriteFile.mockResolvedValue(undefined);
+    mockFileHandle.writeFile.mockResolvedValue(undefined);
+    mockFileHandle.close.mockResolvedValue(undefined);
+    mockOpen.mockResolvedValue(mockFileHandle);
   });
 
   describe('getXmtpPaths', () => {
@@ -58,9 +64,12 @@ describe('XMTP Key Management', () => {
 
       expect(key).toBeInstanceOf(Uint8Array);
       expect(key.length).toBe(32);
-      expect(mockWriteFile).toHaveBeenCalledOnce();
-      // Verify permissions
-      expect(mockWriteFile.mock.calls[0][2]).toEqual({ mode: 0o600 });
+      // Atomic create via open('wx')
+      expect(mockOpen).toHaveBeenCalledOnce();
+      expect(mockOpen.mock.calls[0][1]).toBe('wx');
+      expect(mockOpen.mock.calls[0][2]).toBe(0o600);
+      expect(mockFileHandle.writeFile).toHaveBeenCalledOnce();
+      expect(mockFileHandle.close).toHaveBeenCalledOnce();
     });
 
     it('reads existing key from file', async () => {
@@ -90,8 +99,36 @@ describe('XMTP Key Management', () => {
       const key = await getOrCreateEncryptionKey('0x0000000000000000000000000000000000000001');
 
       expect(key.length).toBe(32);
-      // Should write a new key since the old one was corrupt
-      expect(mockWriteFile).toHaveBeenCalledOnce();
+      // Should create a new key atomically since the old one was corrupt
+      expect(mockOpen).toHaveBeenCalledOnce();
+    });
+
+    it('regenerates key if existing key has non-hex characters', async () => {
+      mockExistsSync.mockImplementation((path: string) => {
+        if (path.endsWith('.key')) return true;
+        return path.includes('.clara/xmtp');
+      });
+      // 64 chars but contains 'g' which is not hex
+      mockReadFile.mockResolvedValue('g'.repeat(64));
+
+      const key = await getOrCreateEncryptionKey('0x0000000000000000000000000000000000000001');
+
+      expect(key.length).toBe(32);
+      expect(mockOpen).toHaveBeenCalledOnce();
+    });
+
+    it('handles race condition where another call creates the key first', async () => {
+      mockExistsSync.mockReturnValue(false);
+      // Simulate EEXIST error from open('wx')
+      const eexistError = Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+      mockOpen.mockRejectedValue(eexistError);
+      // The fallback read should find the winner's key
+      mockReadFile.mockResolvedValue('c'.repeat(64));
+
+      const key = await getOrCreateEncryptionKey('0x0000000000000000000000000000000000000001');
+
+      expect(key.length).toBe(32);
+      expect(Buffer.from(key).toString('hex')).toBe('c'.repeat(64));
     });
 
     it('trims whitespace from key file', async () => {
@@ -123,10 +160,10 @@ describe('XMTP Key Management', () => {
       await getOrCreateEncryptionKey('0x0000000000000000000000000000000000000001', '/custom/path/wallet.db3');
 
       // Key path should be derived from custom db path
-      expect(mockWriteFile).toHaveBeenCalledWith(
+      expect(mockOpen).toHaveBeenCalledWith(
         '/custom/path/wallet.key',
-        expect.any(String),
-        expect.any(Object),
+        'wx',
+        0o600,
       );
     });
 
@@ -136,10 +173,10 @@ describe('XMTP Key Management', () => {
       await getOrCreateEncryptionKey('0x0000000000000000000000000000000000000001', '/custom/path/wallet');
 
       // Should append .key
-      expect(mockWriteFile).toHaveBeenCalledWith(
+      expect(mockOpen).toHaveBeenCalledWith(
         '/custom/path/wallet.key',
-        expect.any(String),
-        expect.any(Object),
+        'wx',
+        0o600,
       );
     });
   });

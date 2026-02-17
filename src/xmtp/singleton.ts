@@ -44,7 +44,11 @@ export async function getOrInitXmtpClient(ctx: ToolContext): Promise<Client> {
       xmtpClient = client;
       identityCache = cache;
       return client;
-    })();
+    })().catch((err) => {
+      // Reset so next call retries instead of returning cached rejection
+      initPromise = null;
+      throw err;
+    });
   }
 
   return initPromise;

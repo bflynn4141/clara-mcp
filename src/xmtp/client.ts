@@ -64,15 +64,23 @@ export async function createClaraXmtpClient(opts: ClaraXmtpClientOptions): Promi
       const timeout = setTimeout(() => controller.abort(), 10_000);
 
       try {
-        const response = await fetch(`${proxyUrl}/xmtp/sign`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Clara-Address': walletAddress,
-          },
-          body: JSON.stringify({ walletId, data: messageHex }),
-          signal: controller.signal,
-        });
+        let response: Response;
+        try {
+          response = await fetch(`${proxyUrl}/xmtp/sign`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Clara-Address': walletAddress,
+            },
+            body: JSON.stringify({ walletId, data: messageHex }),
+            signal: controller.signal,
+          });
+        } catch (fetchErr) {
+          if (fetchErr instanceof DOMException && fetchErr.name === 'AbortError') {
+            throw new Error('XMTP signing timed out after 10s — Para MPC may be overloaded');
+          }
+          throw fetchErr;
+        }
 
         if (!response.ok) {
           const errorText = await response.text();

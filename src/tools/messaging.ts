@@ -14,6 +14,7 @@ import type { ToolResult, ToolContext } from '../middleware.js';
 import { getOrInitXmtpClient, getIdentityCache } from '../xmtp/singleton.js';
 import { ClaraGroupManager } from '../xmtp/groups.js';
 import { encodeClaraMessage, extractText } from '../xmtp/content-types.js';
+import { isAddress } from 'viem';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -137,8 +138,13 @@ async function loadCursors(): Promise<Record<string, number>> {
 async function saveCursor(conversationId: string, timestampMs: number): Promise<void> {
   const cursors = await loadCursors();
   cursors[conversationId] = timestampMs;
-  await mkdir(join(homedir(), '.clara', 'xmtp'), { recursive: true });
-  await writeFile(CURSORS_PATH, JSON.stringify(cursors), { mode: 0o600 });
+  const dir = join(homedir(), '.clara', 'xmtp');
+  await mkdir(dir, { recursive: true });
+  // Atomic write: write to temp file then rename to prevent partial reads
+  const tmpPath = CURSORS_PATH + '.tmp';
+  await writeFile(tmpPath, JSON.stringify(cursors), { mode: 0o600 });
+  const { rename } = await import('fs/promises');
+  await rename(tmpPath, CURSORS_PATH);
 }
 
 // ─── Recipient Resolution ────────────────────────────────
@@ -156,7 +162,10 @@ async function resolveRecipient(
   let walletAddress: string | undefined;
   let displayName = to;
 
-  if (to.startsWith('0x') && to.length === 42) {
+  if (to.startsWith('0x')) {
+    if (!isAddress(to)) {
+      return { error: `Invalid address: "${to}". Must be a valid 0x EVM address (42 hex chars).` };
+    }
     walletAddress = to;
     const entry = cache.resolveWallet(to);
     if (entry?.claraName) displayName = entry.claraName;
@@ -511,7 +520,8 @@ async function formatThread(
     lines.push('──────────────────────────────────────────────────');
     return lines.join('\n');
   } catch (err) {
-    console.error('[messaging] Failed to render thread:', err instanceof Error ? err.message : err);
+    // Log failure without leaking message content — only the error type
+    console.error('[messaging] Thread render failed:', err instanceof Error ? err.constructor.name : 'unknown');
     return null;
   }
 }

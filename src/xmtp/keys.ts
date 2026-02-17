@@ -11,11 +11,13 @@
  * Ported from Glorp's @glorp/xmtp package with path changes only.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, open } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+
+const HEX_64_RE = /^[0-9a-fA-F]{64}$/;
 
 const XMTP_DIR = join(homedir(), '.clara', 'xmtp');
 const KEY_SIZE = 32; // 256-bit encryption key
@@ -63,17 +65,33 @@ export async function getOrCreateEncryptionKey(
     keyPath = getXmtpPaths(walletAddress).keyPath;
   }
 
+  // Try reading existing key
   if (existsSync(keyPath)) {
-    const keyHex = await readFile(keyPath, 'utf-8');
-    const key = Buffer.from(keyHex.trim(), 'hex');
-    if (key.length === KEY_SIZE) {
-      return new Uint8Array(key);
+    const keyHex = (await readFile(keyPath, 'utf-8')).trim();
+    if (HEX_64_RE.test(keyHex)) {
+      return new Uint8Array(Buffer.from(keyHex, 'hex'));
     }
-    // Key is corrupt — regenerate
+    // Key is corrupt or wrong length — regenerate
   }
 
+  // Atomic create: open with 'wx' flag fails if file already exists,
+  // preventing races where two concurrent calls both generate keys.
   const key = randomBytes(KEY_SIZE);
-  await writeFile(keyPath, key.toString('hex'), { mode: 0o600 });
+  const keyHex = key.toString('hex');
+  try {
+    const fh = await open(keyPath, 'wx', 0o600);
+    await fh.writeFile(keyHex);
+    await fh.close();
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      // Another call won the race — read their key
+      const existingHex = (await readFile(keyPath, 'utf-8')).trim();
+      if (HEX_64_RE.test(existingHex)) {
+        return new Uint8Array(Buffer.from(existingHex, 'hex'));
+      }
+    }
+    throw err;
+  }
   return new Uint8Array(key);
 }
 
