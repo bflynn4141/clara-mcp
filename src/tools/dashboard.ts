@@ -314,7 +314,10 @@ export async function handleDashboardRequest(
     } else {
       for (const chainBal of balances) {
         const nativeNum = parseFloat(chainBal.nativeBalance);
-        lines.push(`### ${chainBal.chain.charAt(0).toUpperCase() + chainBal.chain.slice(1)}`);
+        // Gas sufficiency: 0.0005 ETH is roughly enough for a simple tx on L2s
+        const MIN_GAS = chainBal.chain === 'ethereum' ? 0.002 : 0.0005;
+        const gasStatus = nativeNum >= MIN_GAS ? '🟢' : nativeNum > 0 ? '🟡' : '🔴';
+        lines.push(`### ${chainBal.chain.charAt(0).toUpperCase() + chainBal.chain.slice(1)} ${gasStatus}`);
 
         // Native token
         if (nativeNum > 0.00001) {
@@ -349,8 +352,8 @@ export async function handleDashboardRequest(
 
     // Suggested actions
     lines.push('## 💡 Actions');
-    lines.push('- `wallet_balance chain="base"` - Detailed balance for a specific chain');
-    lines.push('- `wallet_briefing` - AI-powered insights on your holdings');
+    lines.push('- `wallet_send` - Send tokens to an address or name');
+    lines.push('- `wallet_swap` - Swap tokens across DEXs');
     lines.push('- `wallet_opportunities` - Find yield opportunities for your positions');
     lines.push('- `wallet_history` - View transaction history');
 

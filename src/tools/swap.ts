@@ -370,12 +370,44 @@ export async function handleSwapRequest(
         ? '**Will send:** approval → swap (2 transactions)'
         : '**Will send:** swap (1 transaction)';
 
+      // Fetch fromToken balance (best-effort)
+      let balanceHint = '';
+      try {
+        const publicClient = createPublicClient({
+          chain: CHAINS[chain].chain,
+          transport: http(getRpcUrl(chain)),
+        });
+
+        const isNative = quote.fromToken.address === '0x0000000000000000000000000000000000000000' ||
+                         quote.fromToken.symbol === 'ETH' || quote.fromToken.symbol === 'MATIC';
+
+        if (isNative) {
+          const { formatUnits } = await import('viem');
+          const bal = await publicClient.getBalance({ address: session.address as Hex });
+          const formatted = parseFloat(formatUnits(bal, 18)).toFixed(6);
+          balanceHint = `\n**Your ${quote.fromToken.symbol} balance:** ${formatted}`;
+        } else {
+          const { formatUnits } = await import('viem');
+          const bal = await publicClient.readContract({
+            address: quote.fromToken.address as Hex,
+            abi: [{ inputs: [{ name: 'account', type: 'address' }], name: 'balanceOf', outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view', type: 'function' }] as const,
+            functionName: 'balanceOf',
+            args: [session.address as Hex],
+          });
+          const formatted = parseFloat(formatUnits(bal, quote.fromToken.decimals)).toFixed(6);
+          balanceHint = `\n**Your ${quote.fromToken.symbol} balance:** ${formatted}`;
+        }
+      } catch {
+        // Best-effort — don't fail the quote if balance fetch fails
+      }
+
       return {
         content: [
           {
             type: 'text',
             text:
               formatQuote(quote, chain, safetyInfo) +
+              balanceHint +
               `\n\n**Quote ID:** \`${newQuoteId}\` (valid for 60 seconds)` +
               `\n**Router Risk:** ${riskDisplay}` +
               `\n${txPreview}` +

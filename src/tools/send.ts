@@ -388,6 +388,30 @@ export async function handleSendRequest(
       });
     }
 
+    // Fetch post-send balance (best-effort, don't block on failure)
+    let postBalance: string | undefined;
+    try {
+      if (tokenInput) {
+        const token = resolveToken(tokenInput, chainName);
+        if (token) {
+          const bal = await publicClient.readContract({
+            address: token.address as Hex,
+            abi: [{ inputs: [{ name: 'account', type: 'address' }], name: 'balanceOf', outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view', type: 'function' }] as const,
+            functionName: 'balanceOf',
+            args: [fromAddress as Hex],
+          });
+          const { formatUnits } = await import('viem');
+          postBalance = `${parseFloat(formatUnits(bal, token.decimals)).toFixed(6)} ${symbol}`;
+        }
+      } else {
+        const bal = await publicClient.getBalance({ address: fromAddress as Hex });
+        const { formatUnits } = await import('viem');
+        postBalance = `${parseFloat(formatUnits(bal, 18)).toFixed(6)} ${chainConfig.nativeSymbol}`;
+      }
+    } catch {
+      // Best-effort — don't fail the response if balance fetch fails
+    }
+
     // Success response
     const explorerUrl = getExplorerTxUrl(chainName, txHash);
 
@@ -401,6 +425,10 @@ export async function handleSendRequest(
       '',
       `**Transaction:** [${txHash.slice(0, 10)}...${txHash.slice(-8)}](${explorerUrl})`,
     ];
+
+    if (postBalance) {
+      lines.push(`**Remaining balance:** ${postBalance}`);
+    }
 
     // Add risk warnings if any (transaction was still sent, but user should be aware)
     if (riskWarnings.length > 0) {

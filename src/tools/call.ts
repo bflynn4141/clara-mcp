@@ -15,6 +15,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import {
   encodeFunctionData,
+  decodeFunctionResult,
   createPublicClient,
   getAddress,
   http,
@@ -378,6 +379,83 @@ export async function handleCallRequest(
       transport: http(getRpcUrl(chain)),
     });
 
+    // ─── VIEW/PURE AUTO-RETURN ─────────────────────────────────────
+    // For read-only functions, call directly and return decoded results.
+    // No need for preparedTx + executePrepared round-trip.
+    const isReadOnly = func.stateMutability === 'view' || func.stateMutability === 'pure';
+
+    if (isReadOnly && value === 0n) {
+      try {
+        const callResult = await publicClient.call({
+          account: ctx.walletAddress,
+          to: contract as Hex,
+          data: calldata,
+        });
+
+        // Decode the return value using the function's output types
+        let decoded: unknown = callResult.data;
+        let decodedDisplay = callResult.data || '(empty)';
+
+        if (callResult.data && func.outputs && func.outputs.length > 0) {
+          try {
+            const decodedValue = decodeFunctionResult({
+              abi: [func] as Abi,
+              functionName: func.name,
+              data: callResult.data,
+            });
+            decoded = decodedValue;
+
+            // Format for display
+            if (typeof decodedValue === 'bigint') {
+              decodedDisplay = decodedValue.toString();
+            } else if (Array.isArray(decodedValue)) {
+              decodedDisplay = decodedValue.map(v =>
+                typeof v === 'bigint' ? v.toString() : String(v)
+              ).join(', ');
+            } else {
+              decodedDisplay = String(decodedValue);
+            }
+          } catch {
+            // Fall through with raw hex
+          }
+        }
+
+        const displayName = contractName ? `${contractName} (\`${contract.slice(0, 10)}...\`)` : `\`${contract}\``;
+
+        const lines = [
+          `📖 **${signature}** on ${displayName}`,
+          '',
+          `**Result:** ${decodedDisplay}`,
+        ];
+
+        // Add output type info
+        if (func.outputs && func.outputs.length > 0) {
+          const outputTypes = func.outputs.map(o =>
+            o.name ? `${o.type} ${o.name}` : o.type
+          ).join(', ');
+          lines.push(`**Return type:** \`${outputTypes}\``);
+        }
+
+        lines.push(`**Chain:** ${chain}`);
+        lines.push('');
+        lines.push('_This was a read-only call — no transaction needed._');
+
+        return {
+          content: [{ type: 'text', text: lines.join('\n') }],
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{
+            type: 'text',
+            text: `❌ Read-only call to \`${signature}\` failed: ${message}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+
+    // ─── STATE-CHANGING FUNCTIONS ──────────────────────────────────
     // Simulate the transaction
     let simulation: PreparedTransaction['simulation'];
 
