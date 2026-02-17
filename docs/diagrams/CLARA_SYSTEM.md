@@ -17,7 +17,6 @@ flowchart TB
     end
 
     subgraph Chain["⛓️ Base Mainnet"]
-        Credits[ClaraCredits<br/>Contract]
         USDC[USDC<br/>Token]
         APIs[x402 APIs]
     end
@@ -27,15 +26,12 @@ flowchart TB
     MCP <-->|HTTPS| Proxy
     Proxy <-->|Track Usage| KV
     Proxy <-->|Sign Requests| Para
-    Proxy <-->|Check Credits| Credits
     MCP <-->|Pay & Fetch| APIs
     APIs <-->|Settle| USDC
-    Credits <-->|Deposit/Spend| USDC
 
     style CC fill:#6366f1,color:#fff
     style MCP fill:#22c55e,color:#fff
     style Proxy fill:#f97316,color:#fff
-    style Credits fill:#3b82f6,color:#fff
 ```
 
 ## Component Responsibilities
@@ -43,7 +39,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph MCP["Clara MCP Server"]
-        Tools[40+ Tools]
+        Tools[24 Tools]
         Limits[Spending Limits]
         History[Payment History]
     end
@@ -51,7 +47,6 @@ flowchart LR
     subgraph Proxy["Clara Proxy"]
         Auth[API Key Injection]
         Free[Free Tier Check]
-        Credit[Credit Verification]
         Track[Usage Tracking]
     end
 
@@ -62,8 +57,7 @@ flowchart LR
     end
 
     Tools --> Auth
-    Auth --> Credit
-    Credit --> Sign
+    Auth --> Sign
     Sign --> Track
 
     style MCP fill:#22c55e,color:#fff
@@ -89,7 +83,7 @@ sequenceDiagram
 
     M->>P: POST /sign-raw<br/>X-Clara-Address: 0x...
 
-    Note over P: Check free tier<br/>or on-chain credits
+    Note over P: Check free tier<br/>usage tracking
 
     P->>A: POST /sign-raw<br/>X-API-Key: [injected]
     A-->>P: signature
@@ -101,34 +95,6 @@ sequenceDiagram
     R-->>M: txHash
     M-->>C: Success + txHash
     C-->>U: "Sent! View on Basescan"
-```
-
-## Credit System Flow
-
-```mermaid
-flowchart TD
-    subgraph Bootstrap["🆓 Bootstrap (New Users)"]
-        New[New User] --> Free{Free Tier<br/>< 1000 ops?}
-        Free -->|Yes| Allow1[Allow Signing]
-        Free -->|No| Check
-    end
-
-    subgraph Paid["💰 Paid Tier"]
-        Check{Has On-Chain<br/>Credits?}
-        Check -->|Yes| Allow2[Allow Signing]
-        Check -->|No| Block[402: Deposit Required]
-    end
-
-    subgraph Settlement["📊 Settlement"]
-        Allow1 --> Track1[Track in KV<br/>free:address]
-        Allow2 --> Track2[Track in KV<br/>usage:address]
-        Track2 --> Cron[Hourly Cron]
-        Cron --> Spend[Call spend() on contract]
-    end
-
-    style Bootstrap fill:#22c55e,color:#fff
-    style Paid fill:#3b82f6,color:#fff
-    style Settlement fill:#f97316,color:#fff
 ```
 
 ## Security Model
@@ -143,7 +109,6 @@ flowchart LR
 
     subgraph Proxy["🛡️ Proxy (Rate Limits)"]
         API[Para API Key<br/>Secret]
-        Credits[Credit Check]
         Usage[Usage Tracking]
     end
 
@@ -155,7 +120,6 @@ flowchart LR
 
     Key --> Session
     Session --> Limits
-    API --> Credits
     Shard1 --> Neither
     Shard2 --> Neither
 
@@ -175,24 +139,27 @@ mindmap
       wallet_logout
       wallet_dashboard
     Core Wallet
-      wallet_balance
       wallet_send
       wallet_sign_message
+      wallet_sign_typed_data
       wallet_history
-      wallet_simulate
+      wallet_approvals
     DeFi
       wallet_swap
-      wallet_bridge
-      wallet_earn
+      wallet_opportunities
+      wallet_call
+      wallet_executePrepared
+      wallet_analyze_contract
     x402 Payments
       wallet_pay_x402
-      wallet_discover_x402
-      wallet_browse_x402
-    Controls
       wallet_spending_limits
-      wallet_spending_history
-    Clara Tokens
-      wallet_cca_bid
-      wallet_stake
-      wallet_claim_dividends
+    Identity
+      wallet_register_name
+      wallet_lookup_name
+      wallet_sponsor_gas
+    Messaging
+      wallet_message
+      wallet_inbox
+      wallet_thread
+      wallet_xmtp_status
 ```

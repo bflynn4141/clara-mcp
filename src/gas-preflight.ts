@@ -118,9 +118,9 @@ export async function requireGas(
 /**
  * Require that an address has contract code deployed.
  *
- * Prevents silent failures from AUDIT-001: EVM allows calldata to EOAs,
+ * Prevents silent failures: EVM allows calldata to EOAs,
  * so transactions to non-contract addresses succeed but do nothing.
- * Call this before interacting with bounty/challenge clone contracts.
+ * Call this before interacting with any contract address.
  */
 export async function requireContract(
   chain: SupportedChain,

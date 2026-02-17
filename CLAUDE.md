@@ -62,7 +62,7 @@ It uses a **provider registry** pattern to route requests to the best available 
     "command": "node",
     "args": ["/Users/brianflynn/clara-mcp/dist/index.js"],
     "env": {
-      "CLARA_PROXY_URL": "https://clara-proxy.bflynn-me.workers.dev",
+      "CLARA_PROXY_URL": "https://clara-proxy.bflynn4141.workers.dev",
       "ZERION_API_KEY": "...",
       "HERD_ENABLED": "true",
       "HERD_API_URL": "https://api.herd.eco/v1/mcp",

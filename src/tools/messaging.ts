@@ -1,22 +1,27 @@
 /**
- * Messaging Tools
+ * Messaging Tools (XMTP)
  *
- * Send and receive direct messages between Clara users.
- * Messages are stored in the Clara proxy's D1 database.
+ * Send and receive E2E encrypted messages between Clara users via XMTP.
+ * Messages are transported peer-to-peer over the XMTP network (MLS/RFC 9420).
  * Users are addressed by claraid.eth name or wallet address.
+ *
+ * Migration: Replaces D1-backed proxy messaging with peer-to-peer XMTP.
+ * Tool names and schemas are unchanged for backwards compatibility.
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult, ToolContext } from '../middleware.js';
-import { proxyFetch } from '../auth/proxy-fetch.js';
-import { getCurrentSessionKey } from '../auth/session-key.js';
-
-// ─── Config ──────────────────────────────────────────────
-
-const PROXY_URL =
-  process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+import { getOrInitXmtpClient, getIdentityCache } from '../xmtp/singleton.js';
+import { ClaraGroupManager } from '../xmtp/groups.js';
+import { encodeClaraMessage, extractText } from '../xmtp/content-types.js';
+import { isAddress } from 'viem';
+import { readFile, writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 
 // ─── Tool Definitions ───────────────────────────────────
+// Identical to the D1 version — only handlers changed.
 
 export const messageToolDefinition: Tool = {
   name: 'wallet_message',
@@ -90,13 +95,9 @@ export const threadToolDefinition: Tool = {
 
 // ─── Helpers ────────────────────────────────────────────
 
-/**
- * Format a relative time string (e.g. "5m ago", "2h ago", "1d ago")
- */
-function relativeTime(isoDate: string): string {
+function relativeTime(date: Date): string {
   const now = Date.now();
-  const then = new Date(isoDate).getTime();
-  const diffMs = now - then;
+  const diffMs = now - date.getTime();
 
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) return 'just now';
@@ -112,12 +113,89 @@ function relativeTime(isoDate: string): string {
   return `${weeks}w ago`;
 }
 
-/**
- * Truncate a string with ellipsis
- */
 function truncate(str: string, max: number): string {
   if (str.length <= max) return str;
   return str.slice(0, max - 3) + '...';
+}
+
+// ─── Read Cursor Storage ───────────────────────────────
+// Tracks last-read timestamp per conversation for unread detection.
+
+const CURSORS_PATH = join(homedir(), '.clara', 'xmtp', 'read-cursors.json');
+
+async function loadCursors(): Promise<Record<string, number>> {
+  try {
+    if (existsSync(CURSORS_PATH)) {
+      const data = await readFile(CURSORS_PATH, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch {
+    // Corrupt file — start fresh
+  }
+  return {};
+}
+
+async function saveCursor(conversationId: string, timestampMs: number): Promise<void> {
+  const cursors = await loadCursors();
+  cursors[conversationId] = timestampMs;
+  const dir = join(homedir(), '.clara', 'xmtp');
+  await mkdir(dir, { recursive: true });
+  // Atomic write: write to temp file then rename to prevent partial reads
+  const tmpPath = CURSORS_PATH + '.tmp';
+  await writeFile(tmpPath, JSON.stringify(cursors), { mode: 0o600 });
+  const { rename } = await import('fs/promises');
+  await rename(tmpPath, CURSORS_PATH);
+}
+
+// ─── Recipient Resolution ────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const IDENTIFIER_KIND_ETHEREUM = 0 as any;
+
+async function resolveRecipient(
+  ctx: ToolContext,
+  to: string,
+): Promise<{ inboxId: string; displayName: string } | { error: string }> {
+  const client = await getOrInitXmtpClient(ctx);
+  const cache = getIdentityCache();
+
+  let walletAddress: string | undefined;
+  let displayName = to;
+
+  if (to.startsWith('0x')) {
+    if (!isAddress(to)) {
+      return { error: `Invalid address: "${to}". Must be a valid 0x EVM address (42 hex chars).` };
+    }
+    walletAddress = to;
+    const entry = cache.resolveWallet(to);
+    if (entry?.claraName) displayName = entry.claraName;
+  } else {
+    // Name-based lookup via identity cache (seeded from ENS directory)
+    const entry = cache.resolveName(to);
+    if (!entry) {
+      return {
+        error: `Recipient not found: "${to}". Make sure the name is registered or use a wallet address.\nUse \`wallet_lookup_name\` to check if a name exists.`,
+      };
+    }
+    walletAddress = entry.walletAddress;
+    displayName = entry.claraName || to;
+  }
+
+  // Resolve wallet address → XMTP inbox ID
+  const inboxId = await client.fetchInboxIdByIdentifier({
+    identifier: walletAddress,
+    identifierKind: IDENTIFIER_KIND_ETHEREUM,
+  });
+
+  if (!inboxId) {
+    return {
+      error: `"${displayName}" hasn't set up XMTP messaging yet. They need to send or receive a message first.`,
+    };
+  }
+
+  // Cache the wallet → inboxId mapping for display name resolution
+  cache.setInboxId(walletAddress, inboxId);
+  return { inboxId, displayName };
 }
 
 // ─── Handlers ───────────────────────────────────────────
@@ -155,55 +233,34 @@ export async function handleMessageRequest(
   }
 
   try {
-    const payload: Record<string, unknown> = { to, body: message };
-    if (replyTo) payload.replyTo = replyTo;
-
-    const response = await proxyFetch(
-      `${PROXY_URL}/api/v1/messages`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
-    );
-
-    const result = (await response.json()) as Record<string, unknown>;
-
-    if (!response.ok) {
-      if (result.code === 'INVALID_RECIPIENT') {
-        return {
-          content: [{
-            type: 'text',
-            text: [
-              `❌ Recipient not found: **${to}**`,
-              '',
-              'Make sure the name is registered or the address is correct.',
-              'Use `wallet_lookup_name` to check if a name exists.',
-            ].join('\n'),
-          }],
-          isError: true,
-        };
-      }
-
+    // Resolve recipient name/address → XMTP inbox ID
+    const resolved = await resolveRecipient(ctx, to);
+    if ('error' in resolved) {
       return {
-        content: [{
-          type: 'text',
-          text: `❌ Failed to send message: ${result.message || result.error || response.statusText}`,
-        }],
+        content: [{ type: 'text', text: `❌ ${resolved.error}` }],
         isError: true,
       };
     }
 
-    const toInfo = result.to as { address?: string; name?: string } | undefined;
-    const recipientDisplay = toInfo?.name || to;
-    const preview = truncate(message, 50);
+    // Find or create DM conversation
+    const client = await getOrInitXmtpClient(ctx);
+    const groupManager = new ClaraGroupManager(client);
+    const dm = await groupManager.findOrCreateDm(resolved.inboxId);
 
+    // Encode and send
+    const encoded = encodeClaraMessage({
+      text: message,
+      context: { action: 'general' },
+      replyTo,
+    });
+    await dm.sendText(encoded);
+
+    const preview = truncate(message, 50);
     return {
       content: [{
         type: 'text',
         text: [
-          `✅ Message sent to **${recipientDisplay}**`,
+          `✅ Message sent to **${resolved.displayName}**`,
           '',
           `> ${preview}`,
         ].join('\n'),
@@ -213,7 +270,7 @@ export async function handleMessageRequest(
     return {
       content: [{
         type: 'text',
-        text: `❌ Failed to send message: ${error instanceof Error ? error.message : 'Network error'}`,
+        text: `❌ Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
       }],
       isError: true,
     };
@@ -230,37 +287,15 @@ export async function handleInboxRequest(
   const limit = (args.limit as number) || 10;
 
   try {
-    const url = new URL(`${PROXY_URL}/api/v1/inbox`);
-    url.searchParams.set('limit', String(limit));
+    const client = await getOrInitXmtpClient(ctx);
+    const cache = getIdentityCache();
+    const cursors = await loadCursors();
 
-    const response = await proxyFetch(
-      url.toString(),
-      {},
-      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
-    );
+    // Sync conversations from network, then list DMs
+    await client.conversations.sync();
+    const dms = client.conversations.listDms();
 
-    const result = (await response.json()) as Record<string, unknown>;
-
-    if (!response.ok) {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Failed to load inbox: ${result.message || result.error || response.statusText}`,
-        }],
-        isError: true,
-      };
-    }
-
-    const threads = result.threads as Array<{
-      id: string;
-      otherParticipant: { address: string; name: string | null };
-      lastMessageAt: string;
-      lastMessagePreview: string;
-      messageCount: number;
-      unreadCount: number;
-    }>;
-
-    if (!threads || threads.length === 0) {
+    if (dms.length === 0) {
       return {
         content: [{
           type: 'text',
@@ -277,7 +312,50 @@ export async function handleInboxRequest(
       };
     }
 
-    const totalUnread = (result.totalUnread as number) || threads.reduce((sum, t) => sum + t.unreadCount, 0);
+    // Gather last message and unread status for each DM
+    const threadSummaries: Array<{
+      dm: typeof dms[0];
+      peerInboxId: string;
+      peerName: string;
+      lastMessageText: string;
+      lastMessageTime: Date;
+      lastMessageIsFromMe: boolean;
+      hasUnread: boolean;
+    }> = [];
+
+    for (const dm of dms) {
+      await dm.sync();
+      const lastMsg = await dm.lastMessage();
+      if (!lastMsg) continue; // Skip empty conversations
+
+      const peerInboxId = dm.peerInboxId;
+      const peerEntry = cache.resolveInboxId(peerInboxId);
+      const peerName = peerEntry?.claraName || cache.getSenderName(peerInboxId);
+
+      const text = typeof lastMsg.content === 'string'
+        ? extractText(lastMsg.content)
+        : '[non-text message]';
+
+      const isFromMe = lastMsg.senderInboxId === client.inboxId;
+      const cursor = cursors[dm.id] || 0;
+      const hasUnread = !isFromMe && lastMsg.sentAt.getTime() > cursor;
+
+      threadSummaries.push({
+        dm,
+        peerInboxId,
+        peerName,
+        lastMessageText: text,
+        lastMessageTime: lastMsg.sentAt,
+        lastMessageIsFromMe: isFromMe,
+        hasUnread,
+      });
+    }
+
+    // Sort by most recent first
+    threadSummaries.sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
+    const visible = threadSummaries.slice(0, limit);
+
+    const totalUnread = threadSummaries.filter((t) => t.hasUnread).length;
     const inboxIcon = totalUnread > 0 ? '📬' : '📭';
 
     const lines = [
@@ -285,32 +363,29 @@ export async function handleInboxRequest(
       '',
     ];
 
-    for (const thread of threads) {
-      const name = thread.otherParticipant.name || shortenAddress(thread.otherParticipant.address);
-      const unread = thread.unreadCount > 0 ? ` (${thread.unreadCount} unread)` : '';
-      const threadIcon = thread.unreadCount > 0 ? '💬' : '📭';
-      const preview = truncate(thread.lastMessagePreview || '', 40);
-      const time = relativeTime(thread.lastMessageAt);
+    for (const thread of visible) {
+      const unreadLabel = thread.hasUnread ? ' (unread)' : '';
+      const threadIcon = thread.hasUnread ? '💬' : '📭';
+      const preview = truncate(thread.lastMessageText, 40);
+      const time = relativeTime(thread.lastMessageTime);
 
-      lines.push(`  ${threadIcon} ${name}${unread}`);
+      lines.push(`  ${threadIcon} ${thread.peerName}${unreadLabel}`);
       lines.push(`     "${preview}" — ${time}`);
       lines.push('');
     }
 
     lines.push('──────────────────────────────────────────────────');
 
-    // If exactly one unread thread, auto-open it inline
-    const unreadThreads = threads.filter((t) => t.unreadCount > 0);
+    // Auto-open single unread thread inline
+    const unreadThreads = visible.filter((t) => t.hasUnread);
     if (unreadThreads.length === 1) {
-      const autoThread = unreadThreads[0];
-      const threadResult = await fetchThread(
-        ctx.walletAddress,
-        autoThread.id,
-        20,
-      );
-      if (threadResult) {
+      const auto = unreadThreads[0];
+      const threadLines = await formatThread(client, auto.dm, auto.peerName, 20);
+      if (threadLines) {
+        // Mark as read
+        await saveCursor(auto.dm.id, Date.now());
         lines.push('');
-        lines.push(threadResult);
+        lines.push(threadLines);
       }
     }
 
@@ -321,7 +396,7 @@ export async function handleInboxRequest(
     return {
       content: [{
         type: 'text',
-        text: `❌ Failed to load inbox: ${error instanceof Error ? error.message : 'Network error'}`,
+        text: `❌ Failed to load inbox: ${error instanceof Error ? error.message : 'Unknown error'}`,
       }],
       isError: true,
     };
@@ -346,100 +421,54 @@ export async function handleThreadRequest(
   }
 
   try {
-    // Get thread by participant — proxy resolves names and finds the thread
-    const url = new URL(`${PROXY_URL}/api/v1/threads/by-participant`);
-    url.searchParams.set('with', withUser);
-    url.searchParams.set('limit', String(limit));
-
-    const response = await proxyFetch(
-      url.toString(),
-      {},
-      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
-    );
-
-    const result = (await response.json()) as Record<string, unknown>;
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        return {
-          content: [{
-            type: 'text',
-            text: [
-              `No conversation with **${withUser}** yet.`,
-              '',
-              `Start one with: \`wallet_message {"to": "${withUser}", "message": "..."}\``,
-            ].join('\n'),
-          }],
-        };
-      }
-
+    // Resolve recipient
+    const resolved = await resolveRecipient(ctx, withUser);
+    if ('error' in resolved) {
+      // Not found — might just not have a conversation yet
       return {
         content: [{
           type: 'text',
-          text: `❌ Failed to open thread: ${result.message || result.error || response.statusText}`,
+          text: [
+            `No conversation with **${withUser}** yet.`,
+            '',
+            `Start one with: \`wallet_message {"to": "${withUser}", "message": "..."}\``,
+          ].join('\n'),
         }],
-        isError: true,
       };
     }
 
-    const thread = result.thread as { id: string; participants: Array<{ address: string; name: string | null }>; messageCount: number };
-    const messages = result.messages as Array<{
-      id: string;
-      from: { address: string; name: string | null };
-      to: { address: string; name: string | null };
-      body: string;
-      createdAt: string;
-    }>;
+    const client = await getOrInitXmtpClient(ctx);
 
-    // Find the other participant's display name
-    const otherParticipant = thread?.participants?.find(
-      (p) => p.address.toLowerCase() !== ctx.walletAddress.toLowerCase(),
-    );
-    const participantName = otherParticipant?.name || withUser;
+    // Find existing DM or return empty
+    await client.conversations.sync();
+    const dm = client.conversations.getDmByInboxId(resolved.inboxId);
 
-    // Mark thread as read (fire-and-forget)
-    if (thread?.id) {
-      proxyFetch(
-        `${PROXY_URL}/api/v1/threads/${encodeURIComponent(thread.id)}/read`,
-        { method: 'POST' },
-        { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
-      ).catch(() => {
-        // Non-fatal — thread display still works
-      });
+    if (!dm) {
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            `No conversation with **${resolved.displayName}** yet.`,
+            '',
+            `Start one with: \`wallet_message {"to": "${withUser}", "message": "..."}\``,
+          ].join('\n'),
+        }],
+      };
     }
 
-    // Format conversation
-    const lines = [
-      `── 💬 Thread with ${participantName} ──────────────`,
-      '',
-    ];
+    const threadText = await formatThread(client, dm, resolved.displayName, limit);
 
-    if (!messages || messages.length === 0) {
-      lines.push('  No messages yet.');
-    } else {
-      // Reverse to show oldest first (proxy returns newest first)
-      const chronological = [...messages].reverse();
-      for (const msg of chronological) {
-        const isMe = msg.from.address.toLowerCase() === ctx.walletAddress.toLowerCase();
-        const sender = isMe ? 'you' : (msg.from.name || shortenAddress(msg.from.address));
-        const time = relativeTime(msg.createdAt);
-
-        lines.push(`  ${sender} (${time}):`);
-        lines.push(`    ${msg.body}`);
-        lines.push('');
-      }
-    }
-
-    lines.push('──────────────────────────────────────────────────');
+    // Mark as read
+    await saveCursor(dm.id, Date.now());
 
     return {
-      content: [{ type: 'text', text: lines.join('\n') }],
+      content: [{ type: 'text', text: threadText || `── 💬 Thread with ${resolved.displayName} ──\n\n  No messages yet.\n\n──────────────────────────────────────────────────` }],
     };
   } catch (error) {
     return {
       content: [{
         type: 'text',
-        text: `❌ Failed to open thread: ${error instanceof Error ? error.message : 'Network error'}`,
+        text: `❌ Failed to open thread: ${error instanceof Error ? error.message : 'Unknown error'}`,
       }],
       isError: true,
     };
@@ -449,82 +478,50 @@ export async function handleThreadRequest(
 // ─── Internal Helpers ───────────────────────────────────
 
 /**
- * Fetch and format a thread by ID (used for inline auto-open in inbox)
+ * Format a DM conversation thread for display.
+ * Used by both handleThreadRequest and inbox auto-open.
  */
-async function fetchThread(
-  walletAddress: string,
-  threadId: string,
+async function formatThread(
+  client: import('@xmtp/node-sdk').Client,
+  dm: import('@xmtp/node-sdk').Dm,
+  participantName: string,
   limit: number,
 ): Promise<string | null> {
   try {
-    const url = new URL(`${PROXY_URL}/api/v1/threads/${encodeURIComponent(threadId)}`);
-    url.searchParams.set('limit', String(limit));
+    const cache = getIdentityCache();
 
-    const response = await proxyFetch(
-      url.toString(),
-      {},
-      { walletAddress, sessionKey: getCurrentSessionKey() },
-    );
-
-    if (!response.ok) return null;
-
-    const result = (await response.json()) as Record<string, unknown>;
-    const thread = result.thread as { id: string; participants: Array<{ address: string; name: string | null }> } | undefined;
-    const messages = result.messages as Array<{
-      id: string;
-      from: { address: string; name: string | null };
-      to: { address: string; name: string | null };
-      body: string;
-      createdAt: string;
-    }>;
-
-    // Find the other participant's display name
-    const otherP = thread?.participants?.find(
-      (p) => p.address.toLowerCase() !== walletAddress.toLowerCase(),
-    );
-    const participantName = otherP?.name || 'Unknown';
-
-    // Mark as read (fire-and-forget)
-    proxyFetch(
-      `${PROXY_URL}/api/v1/threads/${encodeURIComponent(threadId)}/read`,
-      { method: 'POST' },
-      { walletAddress, sessionKey: getCurrentSessionKey() },
-    ).catch(() => {});
+    await dm.sync();
+    const messages = await dm.messages({ limit });
 
     const lines = [
       `── 💬 Thread with ${participantName} ──────────────`,
       '',
     ];
 
-    if (!messages || messages.length === 0) {
+    if (messages.length === 0) {
       lines.push('  No messages yet.');
     } else {
-      // Reverse to show oldest first
-      const chronological = [...messages].reverse();
-      for (const msg of chronological) {
-        const isMe = msg.from.address.toLowerCase() === walletAddress.toLowerCase();
-        const sender = isMe ? 'you' : (msg.from.name || shortenAddress(msg.from.address));
-        const time = relativeTime(msg.createdAt);
+      for (const msg of messages) {
+        const isMe = msg.senderInboxId === client.inboxId;
+        const sender = isMe
+          ? 'you'
+          : cache.getSenderName(msg.senderInboxId);
+        const time = relativeTime(msg.sentAt);
+        const text = typeof msg.content === 'string'
+          ? extractText(msg.content)
+          : '[non-text message]';
 
         lines.push(`  ${sender} (${time}):`);
-        lines.push(`    ${msg.body}`);
+        lines.push(`    ${text}`);
         lines.push('');
       }
     }
 
     lines.push('──────────────────────────────────────────────────');
-
     return lines.join('\n');
   } catch (err) {
-    console.error('[messaging] Failed to render thread:', err instanceof Error ? err.message : err);
+    // Log failure without leaking message content — only the error type
+    console.error('[messaging] Thread render failed:', err instanceof Error ? err.constructor.name : 'unknown');
     return null;
   }
-}
-
-/**
- * Shorten an address: 0xABCD...1234
- */
-function shortenAddress(addr: string): string {
-  if (addr.length <= 10) return addr;
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }

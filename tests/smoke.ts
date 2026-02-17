@@ -64,14 +64,8 @@ const TOOLS: {
     { name: "wallet_status", args: {} },
     { name: "wallet_spending_limits", args: { action: "view" } },
     { name: "wallet_opportunities", args: { asset: "USDC" } },
-    { name: "wallet_ens_check", args: { name: "vitalik" } },
     { name: "wallet_lookup_name", args: { address: WALLET_ADDRESS } },
-    // Marketplace read-only (no auth)
-    { name: "work_browse", args: {} },
-    { name: "work_find", args: {} },
-    { name: "work_profile", args: { address: WALLET_ADDRESS } },
-    { name: "work_reputation", args: { address: WALLET_ADDRESS } },
-    { name: "challenge_browse", args: {} },
+    // Agent identity (read-only)
     // Conditional on env
     ...(HERD ? [{ name: "wallet_analyze_contract", args: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", chain: "base" } }] : []),
     ...(ZERION ? [{ name: "wallet_history", args: { days: 7 } }] : []),
@@ -82,7 +76,7 @@ const TOOLS: {
     { name: "wallet_approvals", args: { chain: "base" } },
     { name: "wallet_inbox", args: {} },
     { name: "wallet_thread", args: { with: WALLET_ADDRESS } },
-    { name: "work_list", args: {} },
+    { name: "wallet_xmtp_status", args: {} },
   ],
 
   // ─── Slow tools (30s timeout) ───
@@ -113,36 +107,16 @@ const TOOLS: {
     // Transactions (spend funds)
     { name: "wallet_send", reason: "sends real funds" },
     { name: "wallet_pay_x402", reason: "spends funds via x402" },
-    { name: "wallet_claim_airdrop", reason: "would claim airdrop" },
     { name: "wallet_executePrepared", reason: "needs preparedTxId from wallet_call" },
     // Signing
     { name: "wallet_sign_message", reason: "signs with wallet key" },
     { name: "wallet_sign_typed_data", reason: "signs typed data with wallet key" },
-    // ENS write ops
-    { name: "wallet_register_ens", reason: "would register ENS (costs ETH)" },
-    { name: "wallet_register_name", reason: "would register on-chain name" },
+    // Name registration
+    { name: "wallet_register_name", reason: "would register a Clara subname" },
     // Gas sponsorship
     { name: "wallet_sponsor_gas", reason: "would request gas from faucet" },
     // Messaging write
     { name: "wallet_message", reason: "sends a message to another address" },
-    // Bounty write ops
-    { name: "work_register", reason: "registers agent on-chain (costs gas)" },
-    { name: "work_post", reason: "posts bounty (locks USDC in escrow)" },
-    { name: "work_claim", reason: "claims bounty (requires open bounty)" },
-    { name: "work_approve_bond", reason: "approves token for bond" },
-    { name: "work_submit", reason: "submits work (requires claimed bounty)" },
-    { name: "work_approve", reason: "approves submission (requires poster role)" },
-    { name: "work_cancel", reason: "cancels bounty (requires poster role)" },
-    { name: "work_reject", reason: "rejects submission (requires poster role)" },
-    { name: "work_rate", reason: "rates counterparty (requires completed bounty)" },
-    // Challenge write ops
-    { name: "challenge_post", reason: "creates challenge (locks USDC in escrow)" },
-    { name: "challenge_submit", reason: "submits to challenge (requires active challenge)" },
-    { name: "challenge_score", reason: "scores submissions (requires poster role)" },
-    { name: "challenge_claim", reason: "claims prize (requires scored challenge)" },
-    // Challenge read ops that need a real address
-    { name: "challenge_detail", reason: "needs real challenge address" },
-    { name: "challenge_leaderboard", reason: "needs real challenge address" },
     // Conditional skips
     ...(HERD ? [] : [
       { name: "wallet_analyze_contract", reason: "needs HERD_ENABLED=true" },

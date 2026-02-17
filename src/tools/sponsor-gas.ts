@@ -15,7 +15,7 @@ import { proxyFetch } from '../auth/proxy-fetch.js';
 // ─── Config ──────────────────────────────────────────────
 
 const GATEWAY_BASE =
-  process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+  process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
 // ─── Tool Definition ─────────────────────────────────────
 
@@ -23,7 +23,7 @@ export const sponsorGasToolDefinition: Tool = {
   name: 'wallet_sponsor_gas',
   description: `Request free gas for onboarding. Sends a tiny amount of ETH (~0.0005) to your wallet on Base to cover transaction fees.
 
-This is a one-time benefit for new users. Use it before \`work_register\` if your wallet has no ETH.
+This is a one-time benefit for new users. Use it if your wallet has no ETH for gas.
 
 **Example:**
 \`\`\`json

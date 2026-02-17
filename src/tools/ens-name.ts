@@ -1,9 +1,8 @@
 /**
- * ENS Subname Tools
+ * Clara Name Tools
  *
  * Register, lookup, and manage *.claraid.eth subnames.
- * These are FREE offchain names resolved via CCIP-Read —
- * no gas needed, just an HTTP call to the Clara gateway.
+ * Names are stored in the Clara proxy KV store — no gas needed.
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -13,7 +12,7 @@ import { proxyFetch } from '../auth/proxy-fetch.js';
 // ─── Config ──────────────────────────────────────────────
 
 const GATEWAY_BASE =
-  process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+  process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
 const PARENT_DOMAIN = 'claraid.eth';
 
@@ -23,9 +22,8 @@ export const registerNameToolDefinition: Tool = {
   name: 'wallet_register_name',
   description: `Claim a free ENS subname under ${PARENT_DOMAIN}.
 
-Registers a human-readable name like "brian.${PARENT_DOMAIN}" that resolves
-to your wallet address from any ENS-compatible app (MetaMask, Rainbow, etc.).
-No gas required — names are resolved offchain via CCIP-Read.
+Registers a human-readable name like "brian.${PARENT_DOMAIN}" that maps
+to your wallet address. No gas required — names are stored in the Clara proxy.
 
 **Rules:**
 - Names must be 3-20 characters, alphanumeric + hyphens
@@ -164,7 +162,7 @@ export async function handleRegisterNameRequest(
 
     lines.push(
       '',
-      '💡 This name resolves in any ENS-compatible app (MetaMask, Rainbow, etc.)',
+      '💡 People can now find and pay you using this name.',
     );
 
     return {

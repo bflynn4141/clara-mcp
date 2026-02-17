@@ -173,8 +173,7 @@ describe('T10: MCP config precedence', () => {
    * Files affected:
    * - ~/.mcp.json (project-level) — missing 3 Tenderly env vars
    * - ~/.claude.json (global) — has Tenderly vars but gets overridden
-   * - src/providers/tenderly.ts — isTenderlyConfigured() returns false
-   * - src/intelligence/safety.ts:431 — falls back to basic estimateGas
+   * - Tenderly provider not loaded — falls back to basic estimateGas
    */
 
   it('documents that Tenderly requires all 3 env vars', () => {
@@ -187,7 +186,7 @@ describe('T10: MCP config precedence', () => {
 
     // Project-level config (.mcp.json) has these:
     const projectLevelEnv = {
-      CLARA_PROXY_URL: 'https://clara-proxy.bflynn-me.workers.dev',
+      CLARA_PROXY_URL: 'https://clara-proxy.bflynn4141.workers.dev',
       PARA_WALLET_ID: '...',
       PARA_WALLET_ADDRESS: '...',
       BASE_RPC_URL: '...',

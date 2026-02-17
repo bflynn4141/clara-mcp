@@ -98,100 +98,35 @@ import {
   executePreparedToolDefinition,
   handleExecutePreparedRequest,
 } from './tools/execute-prepared.js';
-import {
-  claimAirdropToolDefinition,
-  handleClaimAirdropRequest,
-} from './tools/claim-airdrop.js';
-
-// ENS Tools
-import { ensCheckToolDefinition, handleEnsCheckRequest } from './tools/ens-check.js';
-import { ensRegisterToolDefinition, handleEnsRegisterRequest } from './tools/ens-register.js';
+// Names (Clara subnames via proxy KV)
 import {
   registerNameToolDefinition, handleRegisterNameRequest,
   lookupNameToolDefinition, handleLookupNameRequest,
 } from './tools/ens-name.js';
 
-// Messaging
+// Messaging (XMTP)
 import {
   messageToolDefinition, handleMessageRequest,
   inboxToolDefinition, handleInboxRequest,
   threadToolDefinition, handleThreadRequest,
 } from './tools/messaging.js';
+import { xmtpStatusToolDefinition, handleXmtpStatus } from './tools/xmtp-status.js';
 
 // Onboarding
 import { sponsorGasToolDefinition, handleSponsorGas } from './tools/sponsor-gas.js';
 
-// Work/Bounty Tools (ERC-8004)
-import { workRegisterToolDefinition, handleWorkRegister } from './tools/work-register.js';
-import { workPostToolDefinition, handleWorkPost } from './tools/work-post.js';
-import { workBrowseToolDefinition, handleWorkBrowse } from './tools/work-browse.js';
-import { workClaimToolDefinition, handleWorkClaim } from './tools/work-claim.js';
-import { workSubmitToolDefinition, handleWorkSubmit } from './tools/work-submit.js';
-import { workApproveToolDefinition, handleWorkApprove } from './tools/work-approve.js';
-import { workCancelToolDefinition, handleWorkCancel } from './tools/work-cancel.js';
-import { workRejectToolDefinition, handleWorkReject } from './tools/work-reject.js';
-import { workListToolDefinition, handleWorkList } from './tools/work-list.js';
-import { workReputationToolDefinition, handleWorkReputation } from './tools/work-reputation.js';
-import { workRateToolDefinition, handleWorkRate } from './tools/work-rate.js';
-import { workFindToolDefinition, handleWorkFind } from './tools/work-find.js';
-import { workProfileToolDefinition, handleWorkProfile } from './tools/work-profile.js';
-import { workApproveBondToolDefinition, handleWorkApproveBond } from './tools/work-approve-bond.js';
-
-// Challenge Tools (ERC-8004 Challenges)
-import { challengeBrowseToolDefinition, handleChallengeBrowse } from './tools/challenge-browse.js';
-import { challengeDetailToolDefinition, handleChallengeDetail } from './tools/challenge-detail.js';
-import { challengeSubmitToolDefinition, handleChallengeSubmit } from './tools/challenge-submit.js';
-import { challengeScoreToolDefinition, handleChallengeScore } from './tools/challenge-score.js';
-import { challengeLeaderboardToolDefinition, handleChallengeLeaderboard } from './tools/challenge-leaderboard.js';
-import { challengePostToolDefinition, handleChallengePost } from './tools/challenge-post.js';
-import { challengeClaimToolDefinition, handleChallengeClaim } from './tools/challenge-claim.js';
-
 // Providers
 import { initProviders } from './providers/index.js';
 
-// Bounty Indexer
-import { initIndexer } from './indexer/index.js';
 
 // Gas preflight extractors
-import { parseUnits } from 'viem';
 import type { GasPreflightExtractor } from './middleware.js';
 import type { SupportedChain } from './config/chains.js';
 
-/**
- * Extract chain and value from wallet_send args for gas estimation.
- * Native transfers: gasLimit 21k + txValue. ERC-20: gasLimit 200k.
- */
-const sendGasExtractor: GasPreflightExtractor = (args) => {
-  const chain = (args.chain as string) || 'base';
-  const amount = args.amount as string | undefined;
-  const token = args.token as string | undefined;
-
-  // Only native transfers have txValue; ERC-20 transfers are just gas
-  const txValue = !token && amount ? parseUnits(amount, 18) : 0n;
-  const gasLimit = token ? 200_000n : 21_000n;
-
-  return { chain: chain as SupportedChain, txValue, gasLimit };
-};
-
-/**
- * Extract chain from wallet_swap args (only for execute mode).
- * Quotes don't send transactions, so skip preflight.
- */
-const swapGasExtractor: GasPreflightExtractor = (args) => {
-  const action = (args.action as string) || 'quote';
-  if (action !== 'execute') return null;
-
-  const chain = (args.chain as string) || 'base';
-  return { chain: chain as SupportedChain, gasLimit: 500_000n };
-};
-
-/**
- * Extract chain from wallet_executePrepared (always check).
- * Best-effort: defaults to 'base' since chain is stored in prepared tx.
- */
-const executePreparedGasExtractor: GasPreflightExtractor = () => {
-  return { chain: 'base', gasLimit: 300_000n };
-};
+// Note: wallet_send, wallet_swap, and wallet_executePrepared handle their own
+// gas preflight checks internally with more precise parameters (correct chain,
+// txValue, gas limits). Middleware-level extractors were removed to avoid
+// redundant RPC calls and imprecise early gates (e.g., hardcoded 'base' chain).
 
 /**
  * Extract chain from wallet_call args (warn only — simulation may fail).
@@ -225,8 +160,6 @@ registerTool(dashboardToolDefinition, handleDashboardRequest);
 registerTool(historyToolDefinition, handleHistoryRequest);
 registerTool(sendToolDefinition, handleSendRequest, {
   checksSpending: true,
-  gasPreflight: 'check',
-  gasExtractor: sendGasExtractor,
 });
 
 // Signing (auth required)
@@ -254,10 +187,7 @@ registerTool(analyzeContractToolDefinition, handleAnalyzeContract, {
 });
 
 // DeFi (auth required for swap, public for opportunities)
-registerTool(swapToolDefinition, handleSwapRequest, {
-  gasPreflight: 'check',
-  gasExtractor: swapGasExtractor,
-});
+registerTool(swapToolDefinition, handleSwapRequest);
 registerTool(opportunitiesToolDefinition, handleOpportunitiesRequest, {
   requiresAuth: false,
   touchesSession: false,
@@ -268,40 +198,11 @@ registerTool(callToolDefinition, handleCallRequest, {
   gasPreflight: 'warn',
   gasExtractor: callGasExtractor,
 });
-registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
-  gasPreflight: 'check',
-  gasExtractor: executePreparedGasExtractor,
-});
+registerTool(executePreparedToolDefinition, handleExecutePreparedRequest);
 
-// CLARA Airdrop (auth required — uses wallet address for claim)
-registerTool(claimAirdropToolDefinition, handleClaimAirdropRequest, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
+// ─── Names ────────────────────────────────────────────────────────────
 
-// ─── ENS Tools ───────────────────────────────────────────────────────
-
-// ENS name lookup (public — no auth needed)
-registerTool(ensCheckToolDefinition, handleEnsCheckRequest, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// ENS name registration (auth required, on Ethereum mainnet)
-registerTool(ensRegisterToolDefinition, handleEnsRegisterRequest, {
-  gasPreflight: 'check',
-  gasExtractor: (args) => {
-    const action = (args.action as string) || 'commit';
-    // commit tx is cheap (just stores a hash), register tx sends ETH
-    if (action === 'commit') {
-      return { chain: 'ethereum' as SupportedChain, gasLimit: 100_000n };
-    }
-    // register tx: ~300k gas + the ETH value for the name price
-    return { chain: 'ethereum' as SupportedChain, gasLimit: 300_000n };
-  },
-});
-
-// Claim a free subname (auth required, no gas — offchain via CCIP-Read)
+// Claim a free Clara subname (auth required, no gas — proxy KV write)
 registerTool(registerNameToolDefinition, handleRegisterNameRequest, {
   requiresAuth: true,
   touchesSession: true,
@@ -344,135 +245,13 @@ registerTool(threadToolDefinition, handleThreadRequest, {
   touchesSession: false,
 });
 
-// ─── Work/Bounty Tools (ERC-8004) ────────────────────────────────────
-
-// Agent registration (auth, on-chain tx)
-registerTool(workRegisterToolDefinition, handleWorkRegister, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
-});
-
-// Post bounty (auth, spending check, on-chain tx)
-registerTool(workPostToolDefinition, handleWorkPost, {
-  checksSpending: true,
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 300_000n }),
-});
-
-// Claim bounty (auth, on-chain tx)
-registerTool(workClaimToolDefinition, handleWorkClaim, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Approve bond for claiming (auth, on-chain tx)
-registerTool(workApproveBondToolDefinition, handleWorkApproveBond, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Submit work (auth, on-chain tx)
-registerTool(workSubmitToolDefinition, handleWorkSubmit, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Approve submission (auth, on-chain tx + reputation)
-registerTool(workApproveToolDefinition, handleWorkApprove, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
-});
-
-// Cancel bounty (auth, on-chain tx)
-registerTool(workCancelToolDefinition, handleWorkCancel, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
-
-// Reject submission (auth, on-chain tx)
-registerTool(workRejectToolDefinition, handleWorkReject, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 150_000n }),
-});
-
-// List your bounties (auth needed for wallet address, no gas)
-registerTool(workListToolDefinition, handleWorkList, {
-  gasPreflight: 'none',
-});
-
-// Rate an agent (auth, on-chain tx)
-registerTool(workRateToolDefinition, handleWorkRate, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 150_000n }),
-});
-
-// Browse bounties (public)
-registerTool(workBrowseToolDefinition, handleWorkBrowse, {
-  requiresAuth: false,
+// XMTP status (auth required, read-only)
+registerTool(xmtpStatusToolDefinition, handleXmtpStatus, {
+  requiresAuth: true,
+  checksSpending: false,
   touchesSession: false,
 });
 
-// Search agent directory (public)
-registerTool(workFindToolDefinition, handleWorkFind, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// View agent profile (public)
-registerTool(workProfileToolDefinition, handleWorkProfile, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// View agent reputation (public)
-registerTool(workReputationToolDefinition, handleWorkReputation, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// ─── Challenge Tools (ERC-8004 Challenges) ──────────────────────────
-
-// Browse challenges (public)
-registerTool(challengeBrowseToolDefinition, handleChallengeBrowse, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// View challenge details (public)
-registerTool(challengeDetailToolDefinition, handleChallengeDetail, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// View challenge leaderboard (public)
-registerTool(challengeLeaderboardToolDefinition, handleChallengeLeaderboard, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// Submit solution (auth, on-chain tx)
-registerTool(challengeSubmitToolDefinition, handleChallengeSubmit, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 200_000n }),
-});
-
-// Check your score (auth, read-only)
-registerTool(challengeScoreToolDefinition, handleChallengeScore, {
-  gasPreflight: 'none',
-});
-
-// Post challenge (auth, spending check, on-chain two-tx)
-registerTool(challengePostToolDefinition, handleChallengePost, {
-  checksSpending: true,
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 400_000n }),
-});
-
-// Claim prize (auth, on-chain tx)
-registerTool(challengeClaimToolDefinition, handleChallengeClaim, {
-  gasPreflight: 'check',
-  gasExtractor: () => ({ chain: 'base' as SupportedChain, gasLimit: 100_000n }),
-});
 
 debugLog(`TOOLS_REGISTERED count=${getAllToolDefinitions().length}`);
 
@@ -484,15 +263,6 @@ function validateConfig(): string[] {
   if (process.env.HERD_ENABLED === 'true') {
     if (!process.env.HERD_API_URL) errors.push('HERD_ENABLED=true but HERD_API_URL not set');
     if (!process.env.HERD_API_KEY) errors.push('HERD_ENABLED=true but HERD_API_KEY not set');
-  }
-
-  // AUDIT-001: CLARA_NETWORK=testnet causes Sepolia addresses on Base mainnet
-  const network = process.env.CLARA_NETWORK;
-  if (network && network !== 'mainnet') {
-    errors.push(
-      `CLARA_NETWORK="${network}" — bounty/challenge tools will target wrong contracts! ` +
-      'Remove this env var or set to "mainnet". See docs/AUDIT-001-CHAIN-MISMATCH.md'
-    );
   }
 
   // Optional but helpful warnings for features that will fail without them
@@ -563,13 +333,6 @@ async function main(): Promise<void> {
     // Don't exit - core wallet tools still work without providers
   });
 
-  // Initialize bounty indexer in background (non-blocking)
-  // Syncs BountyFactory + Bounty events from chain, then polls every 15s.
-  // If this fails, work_browse/work_list return empty results (not errors).
-  initIndexer().catch((error) => {
-    console.error('[indexer] Initialization error:', error);
-    debugLog(`INDEXER_INIT_ERROR: ${error instanceof Error ? error.message : error}`);
-  });
 }
 
 main().catch((error) => {

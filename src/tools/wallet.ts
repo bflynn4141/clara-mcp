@@ -111,17 +111,10 @@ export async function handleSetupRequest(
     }
 
     lines.push('');
-    lines.push('**⚡ Get Started:**');
-    lines.push('1. **Start using** - `wallet_send`, `wallet_swap`, `wallet_call` for DeFi operations');
-    lines.push('2. **x402 payments** - Write operations auto-pay ~$0.01 USDC via x402 (first 25 ops free)');
-    lines.push('');
-    lines.push('**🎯 Recommended next step:**');
-    lines.push('Run `wallet_briefing` to get a personalized summary of your wallet activity and opportunities.');
-    lines.push('');
-    lines.push('**Useful commands:**');
-    lines.push('- `wallet_briefing` - Get wallet insights and opportunities');
-    lines.push('- `wallet_status` - View wallet details and spending limits');
-    lines.push('- `wallet_spending_limits` - Configure spending controls');
+    lines.push('**🎯 Next steps:**');
+    lines.push('1. **Claim a name** — `wallet_register_name name="yourname"` → get yourname.claraid.eth (free, instant)');
+    lines.push('2. **Get gas** — `wallet_sponsor_gas` → free ETH for your first transactions');
+    lines.push('3. **Start using** — `wallet_send`, `wallet_swap`, `wallet_call` for DeFi operations');
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],
@@ -214,9 +207,8 @@ export async function handleStatusRequest(
       lines.push(await formatDebugSection(chainId, session, identityResult, testConnection));
     }
 
-    // Suggest briefing for intelligence
     lines.push('');
-    lines.push('**Tip:** Run `wallet_briefing` for personalized insights on your holdings and opportunities.');
+    lines.push('**Tip:** Run `wallet_dashboard` for a full portfolio overview, or `wallet_opportunities` to find yield.');
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],

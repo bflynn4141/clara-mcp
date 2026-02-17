@@ -200,7 +200,7 @@ export function wrapTool(
 
 // ─── Session Key Initialization ──────────────────────────
 
-const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
 /**
  * Initialize an ephemeral session key by signing a SIWE delegation via Para MPC.
