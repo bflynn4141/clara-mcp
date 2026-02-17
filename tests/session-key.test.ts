@@ -57,7 +57,7 @@ describe('getOrCreateSessionKey', () => {
     const message = mockSignFn.mock.calls[0][0];
 
     // SIWE message format checks
-    expect(message).toContain('clara-proxy.bflynn-me.workers.dev');
+    expect(message).toContain('clara-proxy.bflynn4141.workers.dev');
     // SIWE uses EIP-55 checksummed address
     expect(message.toLowerCase()).toContain(WALLET.toLowerCase());
     expect(message).toContain('Delegate HTTP request signing to session key: ');

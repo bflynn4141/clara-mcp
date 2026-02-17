@@ -184,7 +184,7 @@ async function uploadToProxy(
   registrationFile: AgentRegistrationFile,
   walletAddress: string,
 ): Promise<string | null> {
-  const proxyUrl = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+  const proxyUrl = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
   const endpoint = `${proxyUrl}/agents/${agentId}.json`;
 
   try {

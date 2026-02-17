@@ -42,7 +42,7 @@ export async function createClaraXmtpClient(opts: ClaraXmtpClientOptions): Promi
   const {
     walletAddress,
     walletId,
-    proxyUrl = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev',
+    proxyUrl = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev',
     env = 'production',
     disableAutoRegister = false,
   } = opts;

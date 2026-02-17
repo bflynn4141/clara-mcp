@@ -160,7 +160,7 @@ Currently, `work_register` creates a minimal metadata blob:
 
 **Options (in order of preference):**
 
-1. **Clara Proxy endpoint** — `https://clara-proxy.bflynn-me.workers.dev/agents/{agentId}.json`
+1. **Clara Proxy endpoint** — `https://clara-proxy.bflynn4141.workers.dev/agents/{agentId}.json`
    - Pros: Fast, no extra dependency, updatable
    - Cons: Centralized
 

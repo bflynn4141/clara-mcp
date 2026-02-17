@@ -25,7 +25,7 @@ Clara is an AI agent wallet system that enables autonomous payments and blockcha
                                           ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         CLARA PROXY (Cloudflare Worker)                      │
-│                     https://clara-proxy.bflynn-me.workers.dev                │
+│                     https://clara-proxy.bflynn4141.workers.dev                │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │                         Request Flow                                 │   │
 │  │  1. Receive request with X-Clara-Address header                     │   │
@@ -271,7 +271,7 @@ forge script script/Deploy.s.sol --rpc-url https://mainnet.base.org --broadcast
 ### Environment Variables (Clara MCP)
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CLARA_PROXY_URL` | Proxy endpoint | `https://clara-proxy.bflynn-me.workers.dev` |
+| `CLARA_PROXY_URL` | Proxy endpoint | `https://clara-proxy.bflynn4141.workers.dev` |
 | `CLARA_SESSION_PATH` | Session storage dir | `~/.clara` |
 | `CHAINSTACK_API_KEY` | Optional RPC key | - |
 

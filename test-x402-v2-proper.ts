@@ -14,7 +14,7 @@ import { hashTypedData, type Hex, keccak256, toHex, randomBytes } from 'viem';
 import { getSession, touchSession } from './src/storage/session.js';
 
 // Clara proxy URL
-const CLARA_PROXY = 'https://clara-proxy.bflynn-me.workers.dev';
+const CLARA_PROXY = 'https://clara-proxy.bflynn4141.workers.dev';
 
 // EIP-3009 TransferWithAuthorization types (from x402 spec)
 const TRANSFER_WITH_AUTHORIZATION_TYPES = {

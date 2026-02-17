@@ -110,7 +110,7 @@ contract OffchainResolver is IExtendedResolver, IERC165 {
 
 After deployment:
 1. Set `parent.eth`'s resolver to the OffchainResolver contract address
-2. Configure gateway URL(s) in the resolver (e.g., `https://clara-proxy.bflynn-me.workers.dev/ens/resolve`)
+2. Configure gateway URL(s) in the resolver (e.g., `https://clara-proxy.bflynn4141.workers.dev/ens/resolve`)
 3. Register the signing key's public address in the resolver
 
 ---

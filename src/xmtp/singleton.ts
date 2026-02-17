@@ -16,7 +16,7 @@ let initPromise: Promise<Client> | null = null;
 let xmtpClient: Client | null = null;
 let identityCache: ClaraIdentityCache | null = null;
 
-const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
 /**
  * Get or initialize the XMTP client.

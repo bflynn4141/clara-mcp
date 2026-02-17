@@ -351,5 +351,5 @@ export async function sendTransaction(
  * Exposed for modules that need to make other Para API calls
  */
 export function getParaApiBase(): string {
-  return process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+  return process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 }

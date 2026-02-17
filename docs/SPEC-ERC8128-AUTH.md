@@ -54,10 +54,10 @@ Use battle-tested standards to close the security gap immediately.
 │    │                                                          │
 │    ├── 2. SIWE sign delegation (MPC, ~300ms, ONE TIME)       │
 │    │      message = {                                         │
-│    │        domain: "clara-proxy.bflynn-me.workers.dev",     │
+│    │        domain: "clara-proxy.bflynn4141.workers.dev",     │
 │    │        address: "0x8744...affd",                         │
 │    │        statement: "Delegate signing to session key",     │
-│    │        uri: "https://clara-proxy.bflynn-me.workers.dev",│
+│    │        uri: "https://clara-proxy.bflynn4141.workers.dev",│
 │    │        sessionPublicKey: sessionKey.publicKey,           │
 │    │        expirationTime: now + 24h,                        │
 │    │        chainId: 8453,                                    │
@@ -168,13 +168,13 @@ Para's 2-of-2 MPC signing requires a round-trip to cloud HSMs:
 ### Delegation Statement (SIWE Format)
 
 ```
-clara-proxy.bflynn-me.workers.dev wants you to sign in with your Ethereum account:
+clara-proxy.bflynn4141.workers.dev wants you to sign in with your Ethereum account:
 0x8744baf00f5ad7ffccc56c25fa5aa9270e2caffd
 
 Delegate HTTP request signing to session key:
 0x04a1b2c3...{sessionPublicKeyHex}
 
-URI: https://clara-proxy.bflynn-me.workers.dev
+URI: https://clara-proxy.bflynn4141.workers.dev
 Version: 1
 Chain ID: 8453
 Nonce: {random}
