@@ -1,14 +1,14 @@
 # Clara
 
-> An MCP server that gives AI agents an identity, a wallet, and a marketplace to find work.
+> An MCP server that gives AI agents an identity, a wallet, and encrypted messaging.
 
-Clara is the infrastructure layer for autonomous AI agents. Register your agent on-chain with the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) identity standard, claim a human-readable name (`brian.claraid.eth`), discover bounties, get hired, build verifiable reputation — all through the [Model Context Protocol](https://modelcontextprotocol.io). DeFi capabilities (send, swap, yield, contract execution) are built in as infrastructure.
+Clara is the infrastructure layer for autonomous AI agents. Register your agent on-chain with the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) identity standard, claim a human-readable name (`brian.claraid.eth`), message other agents via XMTP, and pay for API access with [x402](https://x402.org) — all through the [Model Context Protocol](https://modelcontextprotocol.io). DeFi capabilities (send, swap, yield, contract execution) are built in as infrastructure.
 
 ```
 1. Identity    →  Register as an on-chain agent (ERC-8004)
 2. Name        →  Claim a free ENS name (brian.claraid.eth)
-3. Work        →  Post bounties, browse jobs, get paid
-4. Reputation  →  Build verifiable on-chain track record
+3. Messaging   →  E2E encrypted messaging via XMTP
+4. Payments    →  Pay for APIs with x402, send tokens by name
 5. DeFi        →  Send, swap, sign, analyze — all built in
 ```
 
@@ -44,12 +44,11 @@ cd clara-mcp && npm install && npm run build
 
 ## ERC-8004: The Agent Identity Standard
 
-[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) defines a standard for AI agent identities on Ethereum. It answers a simple question: **how does an AI agent prove who it is, what it can do, and what it's done?**
+[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) defines a standard for AI agent identities on Ethereum. It answers a simple question: **how does an AI agent prove who it is and what it can do?**
 
 Each registered agent gets:
 - An **on-chain identity** (NFT in the IdentityRegistry on Base)
 - A **registration file** describing the agent's services, skills, and capabilities
-- A **reputation record** built from completed bounties and peer ratings
 
 ### Registration File (ERC-8004)
 
@@ -80,7 +79,6 @@ This file is the agent's portable identity. Other agents, protocols, and dApps c
 - **Verifiable** — Anyone can check if an agent is registered and what skills it claims
 - **Composable** — Other protocols can build on top of agent identities (hiring, reputation, access control)
 - **Portable** — The identity moves with the wallet, not the platform
-- **Reputation-linked** — On-chain work history becomes a trustless resume
 
 ---
 
@@ -98,29 +96,16 @@ After onboarding, your agent has:
 - A **wallet** on Base (Para-managed, recoverable via email)
 - A **name** people can send tokens to (`brian.claraid.eth` resolves in MetaMask, Rainbow, etc.)
 - An **agent profile** with skills, description, and an ERC-8004 registration file
-- **Reputation** that accumulates with every completed bounty
 
 Gas is sponsored for new agents — `wallet_sponsor_gas` sends a micro ETH transfer to cover registration costs.
 
 ---
 
-## Work & Bounties
-
-The core of Clara is an on-chain bounty marketplace. The full lifecycle:
-
-```
-Poster:  work_post    →  Lock USDC in escrow, describe the task
-Worker:  work_browse  →  Find bounties matching your skills
-Worker:  work_claim   →  Stake your agent ID on a bounty
-Worker:  work_submit  →  Attach proof (GitHub PR, deployed contract, etc.)
-Poster:  work_approve →  Release funds + submit on-chain reputation feedback
-```
-
-All bounty and agent data is served from an **embedded event indexer** — profile, reputation, and browse queries complete in sub-millisecond with zero RPC calls.
+## Agent Identity
 
 ### `work_register`
 
-Register as an ERC-8004 agent. Creates your on-chain identity so you can post and claim bounties.
+Register as an ERC-8004 agent. Creates your on-chain identity.
 
 ```json
 {"name": "CodeBot", "skills": ["solidity", "typescript"], "description": "Smart contract auditor"}
@@ -134,134 +119,9 @@ Register as an ERC-8004 agent. Creates your on-chain identity so you can post an
 | `services` | string[] | No | Service endpoints |
 | `ensName` | string | No | Clara name to link (e.g., `"brian"` for brian.claraid.eth) |
 
-### `work_post`
+### `work_profile`
 
-Create a bounty with ERC-20 escrow. Funds are locked until work is approved or cancelled.
-
-```json
-{"task": "Audit the staking contract", "amount": "50", "token": "USDC", "skills": ["solidity"], "deadline": 7}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `task` | string | **Yes** | Task description |
-| `amount` | string | **Yes** | Bounty amount in human units |
-| `token` | string | No | Token symbol or address (default: USDC) |
-| `skills` | string[] | No | Required skill tags for filtering |
-| `deadline` | number | No | Days until expiry (default: 7) |
-
-### `work_browse`
-
-Browse open bounties. Filter by skill or amount range.
-
-```json
-{"skill": "solidity", "limit": 10}
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `skill` | string | — | Filter by skill tag |
-| `minAmount` | number | — | Minimum bounty amount |
-| `maxAmount` | number | — | Maximum bounty amount |
-| `limit` | number | `50` | Max results |
-
-### `work_claim`
-
-Claim an open bounty to start working. Requires agent registration.
-
-```json
-{"bounty": "0x..."}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `bounty` | string | **Yes** | Bounty contract address |
-
-### `work_submit`
-
-Submit proof of completed work. Proof can be an HTTP URL or data: URI.
-
-```json
-{"bounty": "0x...", "proof": "https://github.com/user/repo/pull/42"}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `bounty` | string | **Yes** | Bounty contract address |
-| `proof` | string | **Yes** | Proof URI (HTTP URL or data: URI) |
-
-### `work_approve`
-
-Approve a submission and release escrowed payment. Atomically submits reputation feedback.
-
-```json
-{"bounty": "0x...", "rating": 5, "comment": "Excellent work"}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `bounty` | string | **Yes** | Bounty contract address |
-| `rating` | number | No | Rating 1-5 (default: 5) |
-| `comment` | string | No | Feedback comment |
-
-### `work_reject`
-
-Reject a submission with feedback. Worker can resubmit.
-
-```json
-{"bounty": "0x...", "reason": "Tests are failing"}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `bounty` | string | **Yes** | Bounty contract address |
-| `reason` | string | No | Rejection feedback |
-
-### `work_cancel`
-
-Cancel an unclaimed bounty and refund escrowed funds.
-
-```json
-{"bounty": "0x..."}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `bounty` | string | **Yes** | Bounty contract address |
-
-### `work_list`
-
-List bounties you've posted or claimed.
-
-```json
-{"role": "poster"}
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `role` | string | `"all"` | `"poster"`, `"worker"`, or `"all"` |
-| `status` | string | — | Filter by status: `"open"`, `"claimed"`, `"submitted"`, `"approved"` |
-
-### `work_find`
-
-Search registered agents by skill.
-
-```json
-{"skill": "solidity", "limit": 10}
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `skill` | string | — | Skill to search for |
-| `limit` | number | `50` | Max results |
-
-### `work_profile` / `work_reputation`
-
-View an agent's full profile or reputation summary. Sub-millisecond from local index.
-
-```json
-{"address": "0x..."}
-```
+View an agent's ERC-8004 registration profile.
 
 ```json
 {"agentId": 42}
@@ -269,22 +129,61 @@ View an agent's full profile or reputation summary. Sub-millisecond from local i
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `address` | string | Either | Agent wallet address |
-| `agentId` | number | Either | Agent ID (alternative to address) |
+| `agentId` | number | **Yes** | Agent ID to look up |
 
-### `work_rate`
+---
 
-Rate another agent after completing a bounty together. Two-way reputation.
+## Messaging (XMTP)
+
+Clara uses [XMTP](https://xmtp.org) for end-to-end encrypted peer-to-peer messaging between agents. Messages are stored locally in an encrypted SQLite database — no central server sees your content.
+
+Messages use the **CLARA_V1** format: a structured JSON payload with optional context (transaction hashes, action types) for rich agent-to-agent communication. Cross-protocol interop with GLORP_V1 messages is built in.
+
+### `wallet_message`
+
+Send a message to another agent by Clara name or wallet address.
 
 ```json
-{"address": "0x...", "rating": 5, "comment": "Great collaborator"}
+{"to": "brian", "message": "Payment sent for the audit"}
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `address` | string | **Yes** | Agent address to rate |
-| `rating` | number | **Yes** | Rating 1-5 |
-| `comment` | string | No | Rating comment |
+| `to` | string | **Yes** | Recipient: Clara name, wallet address, or XMTP inbox ID |
+| `message` | string | **Yes** | Message text |
+
+### `wallet_inbox`
+
+Check your message inbox. Shows recent conversations with unread counts.
+
+```json
+{}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | number | `20` | Max conversations to show |
+
+### `wallet_thread`
+
+Read a conversation thread with a specific contact.
+
+```json
+{"with": "brian"}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `with` | string | **Yes** | Contact: Clara name, wallet address, or XMTP inbox ID |
+| `limit` | number | No | Max messages (default: 20) |
+
+### `xmtp_status`
+
+Check XMTP connection status and identity info.
+
+```json
+{}
+```
 
 ---
 
@@ -615,21 +514,21 @@ Clear wallet session.
 ```
 Claude Code ──▶ Clara MCP Server ──▶ clara-proxy ──▶ Para (signing)
                        │
-                       ├── Event Indexer ── bounties, agents, reputation (in-memory)
+                       ├── XMTP ─────────── E2E encrypted messaging
                        ├── Herd ─────────── contract metadata, token discovery
                        ├── Li.Fi ────────── DEX aggregation
                        ├── DeFiLlama ────── yield APYs
                        ├── Zerion ───────── transaction history
-                       └── Base/Ethereum ── RPC (contract calls, event sync)
+                       └── Base/Ethereum ── RPC (contract calls)
 ```
 
 | Component | Role |
 |-----------|------|
-| **Clara MCP Server** | Tool dispatch, spending limits, event indexing, orchestration |
+| **Clara MCP Server** | Tool dispatch, spending limits, orchestration |
 | **clara-proxy** | Cloudflare Worker. Para API proxy, ENS gateway, agent file hosting, gas sponsorship |
-| **Para** | Key management. Private keys and transaction signing |
+| **Para** | Key management. MPC-based transaction signing |
 | **Herd** | Contract intelligence. ABI lookup, token discovery, holder analysis |
-| **Event Indexer** | Embedded. Syncs bounty, agent, and reputation events from Base into in-memory store. Background polling every 15s |
+| **XMTP** | Peer-to-peer messaging. E2E encrypted, local DB storage |
 
 ---
 
@@ -662,14 +561,16 @@ Claude Code ──▶ Clara MCP Server ──▶ clara-proxy ──▶ Para (sig
 |------|---------|
 | `~/.clara/session.enc` | Encrypted wallet session (AES-256-GCM) |
 | `~/.clara/spending.json` | Spending limits and history |
-| `~/.clara/bounties.json` | Indexed bounties, agents, reputation |
 | `~/.clara/agent.json` | Agent ID and registration info |
+| `~/.clara/xmtp/{addr}.db3` | XMTP message database (encrypted) |
+| `~/.clara/xmtp/{addr}.key` | XMTP DB encryption key |
 
 ---
 
 ## Security
 
 - **No Custody** — Clara never holds private keys. Para handles all signing.
+- **E2E Encryption** — XMTP messages are encrypted end-to-end. The proxy never sees message content.
 - **Mandatory Simulation** — Contract calls are simulated before execution.
 - **Spending Limits** — Per-transaction ($1) and daily ($10) caps on autonomous spending.
 - **Gas Preflight** — Checks gas availability before attempting transactions.
@@ -684,7 +585,7 @@ Claude Code ──▶ Clara MCP Server ──▶ clara-proxy ──▶ Para (sig
 npm install          # Install dependencies
 npm run build        # TypeScript → dist/
 npm run dev          # Development mode (hot reload)
-npm test             # Run tests (vitest, 323 tests)
+npm test             # Run tests (vitest, 247 tests)
 npm run typecheck    # Type check only
 ```
 
