@@ -5,7 +5,7 @@
  * Handles local agent storage, data URI encoding, and formatting.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -18,22 +18,6 @@ interface LocalAgentData {
   agentId: number;
   name: string;
   registeredAt: string;
-}
-
-/**
- * Read local agent ID from ~/.clara/agent.json
- */
-export function getLocalAgentId(): number | null {
-  try {
-    const data = JSON.parse(readFileSync(AGENT_FILE, 'utf-8')) as LocalAgentData;
-    return data.agentId ?? null;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code && code !== 'ENOENT') {
-      console.warn('[work_helpers] Failed to read agent.json:', err instanceof Error ? err.message : err);
-    }
-    return null;
-  }
 }
 
 /**

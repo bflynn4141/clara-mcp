@@ -302,10 +302,14 @@ export async function handleWorkRegister(
       const receiptClient = createPublicClient({ chain: base, transport: http(getRpcUrl('base')) });
       const receipt = await receiptClient.getTransactionReceipt({ hash: result.txHash as `0x${string}` });
 
-      // Parse Register event from logs using the ABI
+      // Parse Register event — filter by contract address to avoid matching
+      // events from other contracts touched during the tx
+      const registryLogs = receipt.logs.filter(
+        log => log.address.toLowerCase() === contracts.identityRegistry.toLowerCase(),
+      );
       const registerEvents = parseEventLogs({
         abi: REGISTER_EVENT_ABI,
-        logs: receipt.logs,
+        logs: registryLogs,
         eventName: 'Register',
       });
       if (registerEvents.length > 0) {
@@ -386,7 +390,7 @@ export async function handleWorkRegister(
       lines.push(`**Profile:** [${proxyUrl}](${proxyUrl})`);
     } else if (agentId !== null) {
       lines.push('⚠️ Profile upload to proxy failed — your agent is registered on-chain but not web-accessible yet.');
-      lines.push('Try `work_register` again to retry the upload.');
+      lines.push('Use `work_profile` to check visibility later. The on-chain registration is permanent.');
     }
 
     lines.push('');

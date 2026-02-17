@@ -7,8 +7,6 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolResult } from '../middleware.js';
-import { formatAddress } from './work-helpers.js';
-
 const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
 
 export const workProfileToolDefinition: Tool = {
