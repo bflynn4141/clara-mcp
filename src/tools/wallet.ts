@@ -5,7 +5,6 @@
  * These provide the session lifecycle that keeps wallets working.
  */
 
-import { z } from 'zod';
 import { setupWallet, getWalletStatus, logout } from '../para/client.js';
 import { formatSpendingSummary } from '../storage/spending.js';
 import { getSession, touchSession } from '../storage/session.js';

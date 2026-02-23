@@ -1,7 +1,7 @@
 {
   "name": "clara-mcp",
   "version": "1.0.0",
-  "description": "Clara Wallet MCP Server - 12-tool wallet primitive for AI agents",
+  "description": "Clara Wallet MCP Server - 8-tool wallet primitive for AI agents",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
