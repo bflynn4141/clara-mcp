@@ -20,9 +20,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@clack/prompts": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@noble/curves": "^2.0.1",
     "p-limit": "^7.2.0",
+    "picocolors": "^1.1.1",
     "pino": "^10.3.0",
     "siwe": "^3.0.0",
     "viem": "^2.0.0",

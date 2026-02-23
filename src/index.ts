@@ -56,12 +56,10 @@ process.on('unhandledRejection', (reason) => {
 
 // ─── Tool Imports ────────────────────────────────────────────────────
 
-// Session management
+// Session management (reauth only — full setup is CLI)
 import {
-  setupToolDefinition,
-  sessionToolDefinition,
-  handleSetupRequest,
-  handleSessionRequest,
+  reauthToolDefinition,
+  handleReauthRequest,
 } from './tools/wallet.js';
 
 // Read
@@ -78,8 +76,7 @@ import {
 // Sign
 import { signToolDefinition, handleSignRequest } from './tools/sign.js';
 
-// Identity (free offchain Clara subnames)
-import { nameToolDefinition, handleNameRequest } from './tools/ens-name.js';
+// Identity: wallet_name moved to CLI (clara-mcp name register/lookup/reverse)
 
 // Providers
 import { initProviders } from './providers/index.js';
@@ -128,13 +125,10 @@ const callGasExtractor: GasPreflightExtractor = (args) => {
 // Auth-required tools receive a ToolContext with pre-validated session.
 // Public tools handle sessions internally.
 
-// Session (public — manage their own session lifecycle)
-registerTool(setupToolDefinition, handleSetupRequest, {
+// Reauth (public — refreshes expired sessions, directs to CLI for setup)
+registerTool(reauthToolDefinition, handleReauthRequest, {
   requiresAuth: false,
   touchesSession: false,
-});
-registerTool(sessionToolDefinition, handleSessionRequest, {
-  requiresAuth: false,
 });
 
 // Read (auth required)
@@ -157,12 +151,6 @@ registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
 
 // Sign (auth required)
 registerTool(signToolDefinition, handleSignRequest);
-
-// Identity (free offchain subnames — no gas, asymmetric auth)
-registerTool(nameToolDefinition, handleNameRequest, {
-  requiresAuth: false,
-  touchesSession: false,
-});
 
 debugLog(`TOOLS_REGISTERED count=${getAllToolDefinitions().length}`);
 
@@ -216,6 +204,36 @@ function createServer(): Server {
  * even if provider initialization is slow (network calls, etc.).
  */
 async function main(): Promise<void> {
+  // ─── CLI Command Routing ────────────────────────────────────────
+  // Dynamic imports keep @clack/prompts and picocolors out of MCP server runtime.
+  const cmd = process.argv[2];
+
+  if (cmd === 'setup') {
+    const { runSetupWizard } = await import('./cli/setup.js');
+    await runSetupWizard();
+    process.exit(0);
+  }
+
+  if (cmd === 'status') {
+    const { runStatusCheck } = await import('./cli/setup.js');
+    await runStatusCheck();
+    process.exit(0);
+  }
+
+  if (cmd === 'logout') {
+    const { runLogoutCommand } = await import('./cli/setup.js');
+    await runLogoutCommand();
+    process.exit(0);
+  }
+
+  if (cmd === 'name') {
+    const { runNameCommand } = await import('./cli/setup.js');
+    await runNameCommand();
+    process.exit(0);
+  }
+
+  // ─── MCP Server (default — no args) ─────────────────────────────
+
   // Validate config (warnings only — don't block startup)
   const configErrors = validateConfig();
   for (const err of configErrors) {

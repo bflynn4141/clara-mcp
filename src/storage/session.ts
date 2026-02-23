@@ -17,6 +17,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Clara wallet session data
@@ -33,6 +34,7 @@ export interface WalletSession {
   email?: string;                 // Email if using email identifier (portable)
   identifierType?: 'email' | 'customId';
   identifier?: string;            // The actual identifier value
+  authExpiresAt?: string;         // ISO 8601 — when Para auth expires (24h from creation)
   chains: string[];               // Supported chains
   createdAt: string;
   lastActiveAt: string;
@@ -336,4 +338,28 @@ export function getSessionPath(): string {
 export function invalidateCache(): void {
   cachedSession = null;
   encryptionKey = null;
+}
+
+/**
+ * Get or create a stable device ID
+ *
+ * Generates a random UUID on first call, persists to ~/.clara/device_id.
+ * Survives session loss — that's the whole point. Used as a stable
+ * machine identifier for CUSTOM_ID wallets instead of hostname/username
+ * (which leaks PII and collides across machines).
+ */
+const DEVICE_ID_FILE = 'device_id';
+
+export async function getDeviceId(): Promise<string> {
+  const deviceFile = path.join(getStorageDir(), DEVICE_ID_FILE);
+  try {
+    const id = await fs.readFile(deviceFile, 'utf-8');
+    return id.trim();
+  } catch {
+    // First run — generate and persist
+    const id = randomUUID();
+    await fs.mkdir(getStorageDir(), { recursive: true, mode: 0o700 });
+    await fs.writeFile(deviceFile, id, { mode: 0o600 });
+    return id;
+  }
 }

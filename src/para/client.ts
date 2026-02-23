@@ -11,7 +11,7 @@
 
 import { type Hex, hashTypedData, recoverAddress } from 'viem';
 import { proxyFetch } from '../auth/proxy-fetch.js';
-import { getCurrentSessionKey } from '../auth/session-key.js';
+import { getCurrentSessionKey, clearSessionKey } from '../auth/session-key.js';
 
 /**
  * Deep convert BigInt values to strings for JSON serialization
@@ -225,7 +225,7 @@ export function loadParaConfig(): ParaConfig {
 }
 
 // Import session storage for wallet management
-import { getSession, saveSession, clearSession } from '../storage/session.js';
+import { getSession, saveSession, clearSession, getDeviceId } from '../storage/session.js';
 
 const CLARA_PROXY = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
@@ -233,6 +233,7 @@ export interface SetupResult {
   isNew: boolean;
   address: string;
   email?: string;
+  upgradeWarning?: string;
 }
 
 export interface WalletStatus {
@@ -252,18 +253,56 @@ export interface WalletStatus {
  * Handles the case where a wallet already exists for the email:
  * - 409 response → fetch existing wallet and reconnect
  */
-export async function setupWallet(email?: string): Promise<SetupResult> {
+export async function setupWallet(email?: string, force?: boolean): Promise<SetupResult> {
   // Check for existing session
   const existingSession = await getSession();
   if (existingSession?.authenticated && existingSession.address) {
-    return {
-      isNew: false,
-      address: existingSession.address,
-      email: existingSession.email,
-    };
+    // Check if Para auth has expired (24h TTL)
+    // Sessions without authExpiresAt (pre-migration) are treated as expired
+    const authExpired = !existingSession.authExpiresAt ||
+      new Date(existingSession.authExpiresAt).getTime() < Date.now();
+
+    // Check if user wants to upgrade from machine to email wallet
+    const isUpgrade = email && existingSession.identifierType !== 'email';
+
+    if (!authExpired && !isUpgrade) {
+      return {
+        isNew: false,
+        address: existingSession.address,
+        email: existingSession.email,
+      };
+    }
+
+    if (isUpgrade && !force) {
+      // Return upgrade warning — don't silently switch wallets
+      const shortAddr = `${existingSession.address.slice(0, 6)}...${existingSession.address.slice(-4)}`;
+      return {
+        isNew: false,
+        address: existingSession.address,
+        email: existingSession.email,
+        upgradeWarning:
+          `⚠️ You currently have a machine-only wallet (${shortAddr}).\n` +
+          `Setting up with email will create a DIFFERENT portable wallet.\n` +
+          `Your current wallet will no longer be accessible from Clara.\n\n` +
+          `To proceed, call wallet_setup with force: true.\n` +
+          `To keep your current wallet, omit the email parameter.`,
+      };
+    }
+
+    if (isUpgrade && force) {
+      // User confirmed — clear old session before creating EMAIL wallet
+      clearSessionKey();
+      await clearSession();
+    }
+
+    // Auth expired — fall through to create/recover
+    if (authExpired && !isUpgrade) {
+      console.error('[clara] Auth expired, re-authenticating...');
+    }
   }
 
-  const identifier = email || `machine:${process.env.USER || 'claude'}:${Date.now()}`;
+  const deviceId = await getDeviceId();
+  const identifier = email || `machine:v2:${deviceId}`;
   const identifierType = email ? 'EMAIL' : 'CUSTOM_ID';
 
   // Try to create new wallet via proxy
@@ -309,6 +348,9 @@ export async function setupWallet(email?: string): Promise<SetupResult> {
     walletId: wallet.id,
     address: wallet.address,
     email,
+    identifierType: email ? 'email' : 'customId',
+    identifier,
+    authExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     chains: ['EVM'],
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
@@ -363,6 +405,9 @@ async function recoverWalletFromId(walletId: string, email: string): Promise<Set
     walletId,
     address,
     email,
+    identifierType: 'email',
+    identifier: email,
+    authExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     chains: ['EVM'],
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
@@ -418,6 +463,9 @@ async function reconnectExistingWallet(email: string): Promise<SetupResult> {
     walletId: wallet.id,
     address: wallet.address,
     email,
+    identifierType: 'email',
+    identifier: email,
+    authExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     chains: ['EVM'],
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
@@ -473,6 +521,9 @@ async function reconnectViaWalletList(email: string): Promise<SetupResult> {
     walletId: wallet.id,
     address: wallet.address,
     email,
+    identifierType: 'email',
+    identifier: email,
+    authExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     chains: ['EVM'],
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
@@ -485,6 +536,38 @@ async function reconnectViaWalletList(email: string): Promise<SetupResult> {
     address: wallet.address,
     email,
   };
+}
+
+/**
+ * Re-authenticate an existing wallet session
+ *
+ * Narrow-scoped: only refreshes expired sessions using stored credentials.
+ * If no wallet exists, throws with a message directing to CLI setup.
+ * Does NOT create new wallets or handle email/device-only choice.
+ */
+export async function reauthWallet(): Promise<SetupResult> {
+  const existingSession = await getSession();
+
+  if (!existingSession?.authenticated || !existingSession.address) {
+    throw new Error('No wallet configured. Run `clara-mcp setup` to create one.');
+  }
+
+  // If auth is still valid, just return existing session
+  const authExpired =
+    !existingSession.authExpiresAt ||
+    new Date(existingSession.authExpiresAt).getTime() < Date.now();
+
+  if (!authExpired) {
+    return {
+      isNew: false,
+      address: existingSession.address,
+      email: existingSession.email,
+    };
+  }
+
+  // Re-authenticate using existing credentials (email or device ID)
+  console.error('[clara] Auth expired, re-authenticating...');
+  return setupWallet(existingSession.email);
 }
 
 /**
@@ -524,8 +607,9 @@ export async function getWalletStatus(): Promise<WalletStatus> {
 }
 
 /**
- * Logout (clear session)
+ * Logout (clear session + ephemeral key)
  */
 export async function logout(): Promise<void> {
-  await clearSession();
+  clearSessionKey();   // Clear ephemeral key from memory
+  await clearSession(); // Clear session file + cache
 }

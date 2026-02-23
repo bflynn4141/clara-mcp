@@ -298,6 +298,12 @@ export async function handleDashboardRequest(
     }
 
     lines.push(`**Session:** ${status.sessionAge || 'Active'}`);
+
+    if (!status.email) {
+      lines.push('');
+      lines.push('> **No recovery email.** Run `clara-mcp setup` to add one.');
+    }
+
     lines.push('');
 
     // Portfolio summary

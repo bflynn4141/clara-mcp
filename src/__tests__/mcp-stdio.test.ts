@@ -316,9 +316,9 @@ describe('MCP Stdio Protocol', () => {
     expect(Array.isArray(response.result.tools)).toBe(true);
     expect(response.result.tools.length).toBeGreaterThan(0);
 
-    // Verify Clara's core tools are present
+    // Verify Clara's core tools are present (6 tools: reauth, dashboard, send, call, executePrepared, sign)
     const toolNames = response.result.tools.map((t: { name: string }) => t.name);
-    expect(toolNames).toContain('wallet_setup');
+    expect(toolNames).toContain('wallet_reauth');
     expect(toolNames).toContain('wallet_dashboard');
     expect(toolNames).toContain('wallet_send');
   });
