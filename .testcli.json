@@ -1,0 +1,42 @@
+{
+  "name": "clara-mcp",
+  "type": "mcp-server",
+  "source": "local",
+  "node": ">=20",
+  "env": {
+    "CLARA_PROXY_URL": "https://clara-proxy.bflynn4141.workers.dev",
+    "HERD_ENABLED": "false"
+  },
+  "build": "npm run build",
+  "binaries": ["clara-mcp"],
+
+  "commands": [
+    {
+      "name": "help flag",
+      "run": "clara-mcp --help",
+      "expect": { "exitCode": 0, "stdout": "Clara" }
+    }
+  ],
+
+  "interactive": [],
+
+  "mcp": {
+    "command": "node",
+    "args": ["dist/index.js"],
+    "env": {
+      "CLARA_PROXY_URL": "https://clara-proxy.bflynn4141.workers.dev",
+      "HERD_ENABLED": "false"
+    },
+    "expectations": {
+      "serverInfo": { "name": "clara-mcp" },
+      "tools": { "minCount": 8, "required": ["wallet_session", "wallet_send", "wallet_setup", "wallet_dashboard", "wallet_call"] },
+      "toolCalls": [
+        {
+          "name": "wallet_session",
+          "args": {},
+          "expect": { "isError": false }
+        }
+      ]
+    }
+  }
+}

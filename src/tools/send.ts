@@ -229,7 +229,7 @@ export async function handleSendRequest(
         return {
           content: [{
             type: 'text',
-            text: `🛑 **Send blocked by spending limits**\n\n${spendCheck.reason}\n\nUse \`wallet_spending_limits\` to view or adjust your limits.`,
+            text: `🛑 **Send blocked by spending limits**\n\n${spendCheck.reason}\n\nEdit ~/.clara/spending.json to adjust your limits.`,
           }],
           isError: true,
         };

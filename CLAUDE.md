@@ -2,9 +2,9 @@
 
 ## Architecture
 
-Clara MCP is a focused **14-tool wallet primitive** — a stdio-based MCP server
+Clara MCP is a focused **8-tool wallet primitive** — a stdio-based MCP server
 that handles session management, balance reading, transaction sending, message
-signing, spending limits, and ENS identity. Other MCP servers compose with Clara
+signing, and ENS identity. Other MCP servers compose with Clara
 via the `wallet_call` + `wallet_executePrepared` two-phase flow.
 
 ### Provider Hierarchy
@@ -14,25 +14,23 @@ via the `wallet_call` + `wallet_executePrepared` two-phase flow.
 | Token balances | Herd (`TokenDiscovery`) | RPC + hardcoded token list |
 | Tx analysis | Herd (`TxAnalysis`) | RPC basic decoding |
 | Contract metadata | Herd (`ContractMetadata`) | RPC ABI fetch |
-| Tx history | Zerion (`HistoryList`) | None |
 | Wallet actions | Para SDK (local) | None |
 
-### 14 Core Tools
+### 8 Core Tools
 
 | Category | Tools |
 |----------|-------|
-| Session | `wallet_setup`, `wallet_status`, `wallet_logout` |
-| Read | `wallet_dashboard`, `wallet_history` |
+| Session | `wallet_setup`, `wallet_session` |
+| Read | `wallet_dashboard` |
 | Write | `wallet_send`, `wallet_call`, `wallet_executePrepared` |
-| Sign | `wallet_sign_message`, `wallet_sign_typed_data` |
-| Safety | `wallet_approvals`, `wallet_spending_limits` |
-| Identity | `wallet_register_name`, `wallet_lookup_name` |
+| Sign | `wallet_sign` |
+| Identity | `wallet_name` |
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Server entry, tool registration (12 tools) |
+| `src/index.ts` | Server entry, tool registration (8 tools) |
 | `src/tool-registry.ts` | Generic dispatch + middleware pipeline |
 | `src/middleware.ts` | Auth, gas preflight, spending checks |
 | `src/providers/registry.ts` | Capability-based routing (singleton) |
@@ -82,7 +80,6 @@ via the `wallet_call` + `wallet_executePrepared` two-phase flow.
     "args": ["/Users/brianflynn/clara-mcp/dist/index.js"],
     "env": {
       "CLARA_PROXY_URL": "https://clara-proxy.bflynn4141.workers.dev",
-      "ZERION_API_KEY": "...",
       "HERD_ENABLED": "true",
       "HERD_API_URL": "https://api.herd.eco/v1/mcp",
       "HERD_API_KEY": "herd_mcp_123"
@@ -128,7 +125,6 @@ The dashboard (`src/tools/dashboard.ts`) tries Herd first for ethereum/base chai
 | `HERD_ENABLED` | Yes | `false` | Enable Herd provider |
 | `HERD_API_URL` | If Herd enabled | - | Herd API endpoint |
 | `HERD_API_KEY` | If Herd enabled | - | Herd API key |
-| `ZERION_API_KEY` | For history | - | Zerion API key |
 | `CLARA_PROXY_URL` | For wallet ops | - | Clara proxy worker URL |
 | `BASE_RPC_URL` | Optional | Public RPC | Custom Base RPC endpoint |
 
@@ -152,7 +148,7 @@ Other MCP servers provide calldata, Clara signs and sends:
        └─────────────────┼─────────────────┘
                          ▼
          ┌───────────────────────────┐
-         │  Clara Wallet (14 tools)  │
+         │  Clara Wallet (8 tools)   │
          │  wallet_call → Prepared   │
          │  wallet_executePrepared   │
          └───────────┬───────────────┘

@@ -1,7 +1,7 @@
 /**
  * Wallet Management Tools
  *
- * Tools for wallet setup, status, and management.
+ * Tools for wallet setup, session management, and lifecycle.
  * These provide the session lifecycle that keeps wallets working.
  */
 
@@ -42,45 +42,41 @@ If you already have a wallet configured, this returns the existing wallet.`,
 };
 
 /**
- * wallet_status tool definition
+ * wallet_session tool definition
+ *
+ * Merged from wallet_status + wallet_logout.
+ * Dispatches on `action` param: "status" (default) or "logout".
  */
-export const statusToolDefinition = {
-  name: 'wallet_status',
-  description: `Check your wallet status. Shows:
-- Whether you're authenticated
-- Your wallet address and identity binding
-- Supported chains and session age
-- Current spending limits
+export const sessionToolDefinition = {
+  name: 'wallet_session',
+  description: `Manage your wallet session.
 
-Use \`debug: true\` to include auth header diagnostics and optional connection test.`,
+**Actions:**
+- \`"status"\` (default): Check wallet status — address, chains, session age, spending limits
+- \`"logout"\`: Clear your wallet session (you'll need \`wallet_setup\` again)
+
+Use \`debug: true\` with status to include auth header diagnostics.`,
   inputSchema: {
     type: 'object' as const,
     properties: {
+      action: {
+        type: 'string',
+        enum: ['status', 'logout'],
+        description: 'Action to perform. Defaults to "status".',
+      },
       chainId: {
         type: 'number',
-        description: `Target chain ID to validate identity for. Defaults to ${DEFAULT_CHAIN_ID} (Base). Supported: ${SUPPORTED_CHAIN_IDS.join(', ')}`,
+        description: `Target chain ID (for status). Defaults to ${DEFAULT_CHAIN_ID} (Base). Supported: ${SUPPORTED_CHAIN_IDS.join(', ')}`,
       },
       debug: {
         type: 'boolean',
-        description: 'Include detailed auth debugging info (computed headers, identity binding, Para API base). Defaults to false.',
+        description: 'Include detailed auth debugging info (for status). Defaults to false.',
       },
       testConnection: {
         type: 'boolean',
         description: 'If true (requires debug: true), makes a test request to Para to validate auth. Defaults to false.',
       },
     },
-  },
-};
-
-/**
- * wallet_logout tool definition
- */
-export const logoutToolDefinition = {
-  name: 'wallet_logout',
-  description: 'Clear your wallet session. You will need to run wallet_setup again to use wallet features.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {},
   },
 };
 
@@ -115,8 +111,7 @@ export async function handleSetupRequest(
     lines.push('- `wallet_dashboard` - Portfolio overview');
     lines.push('- `wallet_send` - Send tokens');
     lines.push('- `wallet_call` - Call any contract');
-    lines.push('- `wallet_register_name` - Claim a free .claraid.eth name');
-    lines.push('- `wallet_spending_limits` - Configure spending controls');
+    lines.push('- `wallet_name` - Claim a free .claraid.eth name');
 
     return {
       content: [{ type: 'text', text: lines.join('\n') }],
@@ -133,9 +128,33 @@ export async function handleSetupRequest(
 }
 
 /**
- * Handle wallet_status (consolidated from session-status, debug-auth)
+ * Handle wallet_session — dispatches on action param
  */
-export async function handleStatusRequest(
+export async function handleSessionRequest(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  const action = (args.action as string) || 'status';
+
+  switch (action) {
+    case 'status':
+      return handleStatusRequest(args);
+    case 'logout':
+      return handleLogoutRequest(args);
+    default:
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Unknown action: "${action}". Use "status" or "logout".`,
+        }],
+        isError: true,
+      };
+  }
+}
+
+/**
+ * Handle status action (consolidated from session-status, debug-auth)
+ */
+async function handleStatusRequest(
   args: Record<string, unknown>
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const chainId = (args.chainId as number) || DEFAULT_CHAIN_ID;
@@ -369,9 +388,9 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * Handle wallet_logout
+ * Handle logout action
  */
-export async function handleLogoutRequest(
+async function handleLogoutRequest(
   _args: Record<string, unknown>,
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {

@@ -102,7 +102,7 @@ async function resolveClaraName(label: string): Promise<ResolvedAddress> {
 
     if (response.status === 404) {
       throw new Error(
-        `"${fullName}" is not registered. The name is available — claim it with \`wallet_register_name\`.`,
+        `"${fullName}" is not registered. The name is available — claim it with \`wallet_name action:"register"\`.`,
       );
     }
 

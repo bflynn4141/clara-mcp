@@ -1,14 +1,19 @@
 /**
- * ENS Subname Tools
+ * ENS Name Tool
  *
- * Register, lookup, and manage *.claraid.eth subnames.
+ * Register, lookup, and reverse-lookup *.claraid.eth subnames.
  * These are FREE offchain names resolved via CCIP-Read —
  * no gas needed, just an HTTP call to the Clara gateway.
+ *
+ * Merged from wallet_register_name + wallet_lookup_name.
+ * Dispatches on `action` param: "register", "lookup" (default), "reverseLookup".
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolResult, ToolContext } from '../middleware.js';
+import type { ToolResult } from '../middleware.js';
 import { proxyFetch } from '../auth/proxy-fetch.js';
+import { getSession } from '../storage/session.js';
+import { getCurrentSessionKey } from '../auth/session-key.js';
 
 // ─── Config ──────────────────────────────────────────────
 
@@ -17,70 +22,82 @@ const GATEWAY_BASE =
 
 const PARENT_DOMAIN = 'claraid.eth';
 
-// ─── Tool Definitions ───────────────────────────────────
+// ─── Tool Definition ────────────────────────────────────
 
-export const registerNameToolDefinition: Tool = {
-  name: 'wallet_register_name',
-  description: `Claim a free ENS subname under ${PARENT_DOMAIN}.
+export const nameToolDefinition: Tool = {
+  name: 'wallet_name',
+  description: `Manage ${PARENT_DOMAIN} ENS subnames.
 
-Registers a human-readable name like "brian.${PARENT_DOMAIN}" that resolves
-to your wallet address from any ENS-compatible app (MetaMask, Rainbow, etc.).
-No gas required — names are resolved offchain via CCIP-Read.
-
-**Rules:**
-- Names must be 3-20 characters, alphanumeric + hyphens
-- One name per wallet address
-- First come, first served
+**Actions:**
+- \`"lookup"\` (default): Look up a subname → address
+- \`"reverseLookup"\`: Look up an address → subname
+- \`"register"\`: Claim a free subname (requires wallet setup)
 
 **Examples:**
-- \`{"name": "brian"}\` → registers brian.${PARENT_DOMAIN}
-- \`{"name": "my-agent", "agentId": 42}\` → registers with agent link`,
+- \`{"name": "brian"}\` → looks up brian.${PARENT_DOMAIN}
+- \`{"action": "reverseLookup", "address": "0x8744..."}\` → finds the name for that address
+- \`{"action": "register", "name": "brian"}\` → claims brian.${PARENT_DOMAIN}
+
+Names are 3-20 chars, alphanumeric + hyphens. One per wallet. No gas required.`,
   inputSchema: {
     type: 'object',
     properties: {
+      action: {
+        type: 'string',
+        enum: ['lookup', 'reverseLookup', 'register'],
+        description: 'Action to perform. Defaults to "lookup".',
+      },
       name: {
         type: 'string',
         description: `Subname label (e.g., "brian" for brian.${PARENT_DOMAIN})`,
       },
-      agentId: {
-        type: 'number',
-        description: 'Optional ERC-8004 agent token ID to link to this name',
-      },
-    },
-    required: ['name'],
-  },
-};
-
-export const lookupNameToolDefinition: Tool = {
-  name: 'wallet_lookup_name',
-  description: `Look up a ${PARENT_DOMAIN} subname to find the linked wallet address.
-
-**Examples:**
-- \`{"name": "brian"}\` → shows who owns brian.${PARENT_DOMAIN}
-- \`{"address": "0x8744..."}\` → reverse lookup (address → name)`,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      name: {
-        type: 'string',
-        description: 'Subname to look up (e.g., "brian")',
-      },
       address: {
         type: 'string',
-        description: 'Wallet address for reverse lookup (alternative to name)',
+        description: 'Wallet address (for reverseLookup)',
+      },
+      agentId: {
+        type: 'number',
+        description: 'Optional ERC-8004 agent token ID to link (for register)',
       },
     },
   },
 };
 
-// ─── Handlers ───────────────────────────────────────────
+// ─── Handler ────────────────────────────────────────────
 
 /**
- * Register a subname (auth required — uses wallet address)
+ * Handle wallet_name — dispatches on action param.
+ *
+ * NOTE: This is a PublicToolHandler (no ctx param) because requiresAuth is false.
+ * The register action handles auth internally via getSession() + getCurrentSessionKey().
  */
-export async function handleRegisterNameRequest(
+export async function handleNameRequest(
   args: Record<string, unknown>,
-  ctx: ToolContext,
+): Promise<ToolResult> {
+  const action = (args.action as string) || 'lookup';
+
+  switch (action) {
+    case 'register':
+      return handleRegister(args);
+    case 'lookup':
+      return handleLookup(args);
+    case 'reverseLookup':
+      return handleReverseLookup(args);
+    default:
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Unknown action: "${action}". Use "lookup", "reverseLookup", or "register".`,
+        }],
+        isError: true,
+      };
+  }
+}
+
+// ─── Register (auth required — handled internally) ──────
+
+async function handleRegister(
+  args: Record<string, unknown>,
 ): Promise<ToolResult> {
   const name = args.name as string;
   const agentId = args.agentId as number | undefined;
@@ -92,6 +109,21 @@ export async function handleRegisterNameRequest(
     };
   }
 
+  // Manual auth — requiresAuth is false so middleware doesn't check
+  const session = await getSession();
+  if (!session?.authenticated || !session.address) {
+    return {
+      content: [{
+        type: 'text',
+        text: '❌ No wallet configured. Run `wallet_setup` first to register a name.',
+      }],
+      isError: true,
+    };
+  }
+
+  const walletAddress = session.address;
+  const sessionKey = getCurrentSessionKey();
+
   try {
     const response = await proxyFetch(
       `${GATEWAY_BASE}/ens/register`,
@@ -100,11 +132,11 @@ export async function handleRegisterNameRequest(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
-          address: ctx.walletAddress,
+          address: walletAddress,
           agentId: agentId || null,
         }),
       },
-      { walletAddress: ctx.walletAddress, sessionKey: ctx.sessionKey },
+      { walletAddress, sessionKey },
     );
 
     const result = (await response.json()) as Record<string, unknown>;
@@ -181,50 +213,34 @@ export async function handleRegisterNameRequest(
   }
 }
 
-/**
- * Look up a subname or reverse-resolve an address (public — no auth)
- */
-export async function handleLookupNameRequest(
+// ─── Lookup (public — no auth) ─────────────────────────
+
+async function handleLookup(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
   const name = args.name as string | undefined;
-  const address = args.address as string | undefined;
 
-  if (!name && !address) {
+  if (!name) {
     return {
       content: [{
         type: 'text',
-        text: '❌ Provide either `name` (forward lookup) or `address` (reverse lookup)',
+        text: '❌ Missing required parameter: name',
       }],
       isError: true,
     };
   }
 
   try {
-    let url: string;
-    if (name) {
-      url = `${GATEWAY_BASE}/ens/lookup/${encodeURIComponent(name)}`;
-    } else {
-      url = `${GATEWAY_BASE}/ens/reverse/${encodeURIComponent(address!)}`;
-    }
-
+    const url = `${GATEWAY_BASE}/ens/lookup/${encodeURIComponent(name)}`;
     const response = await fetch(url);
     const result = (await response.json()) as Record<string, unknown>;
 
     if (!response.ok) {
       if (response.status === 404) {
-        if (name) {
-          return {
-            content: [{
-              type: 'text',
-              text: `**${name}.${PARENT_DOMAIN}** is not registered. It's available to claim with \`wallet_register_name\`.`,
-            }],
-          };
-        }
         return {
           content: [{
             type: 'text',
-            text: `No ${PARENT_DOMAIN} subname found for \`${address}\`.`,
+            text: `**${name}.${PARENT_DOMAIN}** is not registered. It's available to claim with \`wallet_name action:"register"\`.`,
           }],
         };
       }
@@ -238,23 +254,7 @@ export async function handleLookupNameRequest(
       };
     }
 
-    const lines = [
-      `**${result.fullName}**`,
-      '',
-      `**Address:** \`${result.address}\``,
-    ];
-
-    if (result.agentId) {
-      lines.push(`**Agent ID:** ${result.agentId}`);
-    }
-
-    if (result.registeredAt) {
-      lines.push(`**Registered:** ${result.registeredAt}`);
-    }
-
-    return {
-      content: [{ type: 'text', text: lines.join('\n') }],
-    };
+    return formatLookupResult(result);
   } catch (error) {
     return {
       content: [{
@@ -264,4 +264,79 @@ export async function handleLookupNameRequest(
       isError: true,
     };
   }
+}
+
+// ─── Reverse Lookup (public — no auth) ─────────────────
+
+async function handleReverseLookup(
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  const address = args.address as string | undefined;
+
+  if (!address) {
+    return {
+      content: [{
+        type: 'text',
+        text: '❌ Missing required parameter: address',
+      }],
+      isError: true,
+    };
+  }
+
+  try {
+    const url = `${GATEWAY_BASE}/ens/reverse/${encodeURIComponent(address)}`;
+    const response = await fetch(url);
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return {
+          content: [{
+            type: 'text',
+            text: `No ${PARENT_DOMAIN} subname found for \`${address}\`.`,
+          }],
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Reverse lookup failed: ${result.error || response.statusText}`,
+        }],
+        isError: true,
+      };
+    }
+
+    return formatLookupResult(result);
+  } catch (error) {
+    return {
+      content: [{
+        type: 'text',
+        text: `❌ Reverse lookup failed: ${error instanceof Error ? error.message : 'Network error'}`,
+      }],
+      isError: true,
+    };
+  }
+}
+
+// ─── Shared formatter ───────────────────────────────────
+
+function formatLookupResult(result: Record<string, unknown>): ToolResult {
+  const lines = [
+    `**${result.fullName}**`,
+    '',
+    `**Address:** \`${result.address}\``,
+  ];
+
+  if (result.agentId) {
+    lines.push(`**Agent ID:** ${result.agentId}`);
+  }
+
+  if (result.registeredAt) {
+    lines.push(`**Registered:** ${result.registeredAt}`);
+  }
+
+  return {
+    content: [{ type: 'text', text: lines.join('\n') }],
+  };
 }

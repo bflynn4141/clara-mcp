@@ -1,23 +1,21 @@
 /**
  * Tests for wallet management tools
  *
- * Tests wallet_setup, wallet_status, and wallet_logout tools.
+ * Tests wallet_setup and wallet_session tools.
  *
- * NOTE: Wallet handlers (setup, status, logout) do NOT use ToolContext.
+ * NOTE: Wallet handlers (setup, session) do NOT use ToolContext.
  * They manage session internally because:
  * - wallet_setup runs BEFORE any session exists
- * - wallet_status needs to report unauthenticated state
- * - wallet_logout destroys the session
+ * - wallet_session status needs to report unauthenticated state
+ * - wallet_session logout destroys the session
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   setupToolDefinition,
-  statusToolDefinition,
-  logoutToolDefinition,
+  sessionToolDefinition,
   handleSetupRequest,
-  handleStatusRequest,
-  handleLogoutRequest,
+  handleSessionRequest,
 } from '../../tools/wallet.js';
 
 // Mock the para client
@@ -68,16 +66,11 @@ describe('Wallet Tools', () => {
       expect(setupToolDefinition.inputSchema.properties).toHaveProperty('email');
     });
 
-    it('wallet_status has correct schema', () => {
-      expect(statusToolDefinition.name).toBe('wallet_status');
-      expect(statusToolDefinition.description).toContain('status');
-      expect(statusToolDefinition.inputSchema.type).toBe('object');
-    });
-
-    it('wallet_logout has correct schema', () => {
-      expect(logoutToolDefinition.name).toBe('wallet_logout');
-      expect(logoutToolDefinition.description).toContain('Clear');
-      expect(logoutToolDefinition.inputSchema.type).toBe('object');
+    it('wallet_session has correct schema', () => {
+      expect(sessionToolDefinition.name).toBe('wallet_session');
+      expect(sessionToolDefinition.description).toContain('session');
+      expect(sessionToolDefinition.inputSchema.type).toBe('object');
+      expect(sessionToolDefinition.inputSchema.properties).toHaveProperty('action');
     });
   });
 
@@ -130,8 +123,8 @@ describe('Wallet Tools', () => {
     });
   });
 
-  describe('handleStatusRequest', () => {
-    it('handles authenticated wallet', async () => {
+  describe('handleSessionRequest', () => {
+    it('defaults to status action', async () => {
       vi.mocked(getWalletStatus).mockResolvedValue({
         authenticated: true,
         address: '0x1234567890123456789012345678901234567890',
@@ -139,7 +132,6 @@ describe('Wallet Tools', () => {
         sessionAge: '2 hours',
         chains: ['base', 'ethereum'],
       });
-      // Mock session with createdAt 2 hours ago so formatDuration produces "2h 0m"
       vi.mocked(getSession).mockResolvedValue({
         authenticated: true,
         address: '0x1234567890123456789012345678901234567890',
@@ -147,7 +139,7 @@ describe('Wallet Tools', () => {
         createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       });
 
-      const result = await handleStatusRequest({});
+      const result = await handleSessionRequest({});
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Wallet Active');
@@ -156,12 +148,32 @@ describe('Wallet Tools', () => {
       expect(result.content[0].text).toContain('2h');
     });
 
+    it('handles status action explicitly', async () => {
+      vi.mocked(getWalletStatus).mockResolvedValue({
+        authenticated: true,
+        address: '0x1234567890123456789012345678901234567890',
+        sessionAge: '1 hour',
+        chains: ['base'],
+      });
+      vi.mocked(getSession).mockResolvedValue({
+        authenticated: true,
+        address: '0x1234567890123456789012345678901234567890',
+        walletId: 'test-wallet-id',
+        createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      });
+
+      const result = await handleSessionRequest({ action: 'status' });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Wallet Active');
+    });
+
     it('handles unauthenticated state', async () => {
       vi.mocked(getWalletStatus).mockResolvedValue({
         authenticated: false,
       });
 
-      const result = await handleStatusRequest({});
+      const result = await handleSessionRequest({ action: 'status' });
 
       expect(result.content[0].text).toContain('No wallet configured');
       expect(result.content[0].text).toContain('wallet_setup');
@@ -170,18 +182,16 @@ describe('Wallet Tools', () => {
     it('handles status errors', async () => {
       vi.mocked(getWalletStatus).mockRejectedValue(new Error('Network error'));
 
-      const result = await handleStatusRequest({});
+      const result = await handleSessionRequest({ action: 'status' });
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Network error');
     });
-  });
 
-  describe('handleLogoutRequest', () => {
-    it('handles successful logout', async () => {
+    it('handles logout action', async () => {
       vi.mocked(logout).mockResolvedValue(undefined);
 
-      const result = await handleLogoutRequest({});
+      const result = await handleSessionRequest({ action: 'logout' });
 
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Logged out');
@@ -190,10 +200,17 @@ describe('Wallet Tools', () => {
     it('handles logout errors', async () => {
       vi.mocked(logout).mockRejectedValue(new Error('Session error'));
 
-      const result = await handleLogoutRequest({});
+      const result = await handleSessionRequest({ action: 'logout' });
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Session error');
+    });
+
+    it('rejects unknown action', async () => {
+      const result = await handleSessionRequest({ action: 'invalid' });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Unknown action');
     });
   });
 });

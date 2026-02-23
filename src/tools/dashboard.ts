@@ -349,10 +349,8 @@ export async function handleDashboardRequest(
 
     // Suggested actions
     lines.push('## 💡 Actions');
-    lines.push('- `wallet_history` - View transaction history');
     lines.push('- `wallet_send` - Send tokens');
     lines.push('- `wallet_call` - Call any contract');
-    lines.push('- `wallet_approvals` - Review token approvals');
 
     // Build structured data for programmatic use
     const structuredData = {

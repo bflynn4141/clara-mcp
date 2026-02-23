@@ -2,9 +2,9 @@
 /**
  * Clara MCP Server
  *
- * A focused wallet primitive — 12 tools for session management,
+ * A focused wallet primitive — 8 tools for session management,
  * reading balances, sending transactions, signing messages, and
- * managing spending limits.
+ * managing ENS identity.
  *
  * Other MCP servers compose with Clara via wallet_call + wallet_executePrepared.
  *
@@ -59,16 +59,13 @@ process.on('unhandledRejection', (reason) => {
 // Session management
 import {
   setupToolDefinition,
-  statusToolDefinition,
-  logoutToolDefinition,
+  sessionToolDefinition,
   handleSetupRequest,
-  handleStatusRequest,
-  handleLogoutRequest,
+  handleSessionRequest,
 } from './tools/wallet.js';
 
 // Read
 import { dashboardToolDefinition, handleDashboardRequest } from './tools/dashboard.js';
-import { historyToolDefinition, handleHistoryRequest } from './tools/history.js';
 
 // Write
 import { sendToolDefinition, handleSendRequest } from './tools/send.js';
@@ -79,25 +76,10 @@ import {
 } from './tools/execute-prepared.js';
 
 // Sign
-import {
-  signMessageToolDefinition,
-  signTypedDataToolDefinition,
-  handleSignMessageRequest,
-  handleSignTypedDataRequest,
-} from './tools/sign.js';
-
-// Safety
-import { approvalsToolDefinition, handleApprovalsRequest } from './tools/approvals.js';
-import {
-  spendingLimitsToolDefinition,
-  handleSpendingLimitsRequest,
-} from './tools/spending.js';
+import { signToolDefinition, handleSignRequest } from './tools/sign.js';
 
 // Identity (free offchain Clara subnames)
-import {
-  registerNameToolDefinition, handleRegisterNameRequest,
-  lookupNameToolDefinition, handleLookupNameRequest,
-} from './tools/ens-name.js';
+import { nameToolDefinition, handleNameRequest } from './tools/ens-name.js';
 
 // Providers
 import { initProviders } from './providers/index.js';
@@ -151,17 +133,12 @@ registerTool(setupToolDefinition, handleSetupRequest, {
   requiresAuth: false,
   touchesSession: false,
 });
-registerTool(statusToolDefinition, handleStatusRequest, {
+registerTool(sessionToolDefinition, handleSessionRequest, {
   requiresAuth: false,
-});
-registerTool(logoutToolDefinition, handleLogoutRequest, {
-  requiresAuth: false,
-  touchesSession: false,
 });
 
 // Read (auth required)
 registerTool(dashboardToolDefinition, handleDashboardRequest);
-registerTool(historyToolDefinition, handleHistoryRequest);
 
 // Write (auth required)
 registerTool(sendToolDefinition, handleSendRequest, {
@@ -179,22 +156,10 @@ registerTool(executePreparedToolDefinition, handleExecutePreparedRequest, {
 });
 
 // Sign (auth required)
-registerTool(signMessageToolDefinition, handleSignMessageRequest);
-registerTool(signTypedDataToolDefinition, handleSignTypedDataRequest);
+registerTool(signToolDefinition, handleSignRequest);
 
-// Safety
-registerTool(approvalsToolDefinition, handleApprovalsRequest);
-registerTool(spendingLimitsToolDefinition, handleSpendingLimitsRequest, {
-  requiresAuth: false,
-  touchesSession: false,
-});
-
-// Identity (free offchain subnames — no gas)
-registerTool(registerNameToolDefinition, handleRegisterNameRequest, {
-  requiresAuth: true,
-  touchesSession: true,
-});
-registerTool(lookupNameToolDefinition, handleLookupNameRequest, {
+// Identity (free offchain subnames — no gas, asymmetric auth)
+registerTool(nameToolDefinition, handleNameRequest, {
   requiresAuth: false,
   touchesSession: false,
 });
@@ -209,11 +174,6 @@ function validateConfig(): string[] {
   if (process.env.HERD_ENABLED === 'true') {
     if (!process.env.HERD_API_URL) errors.push('HERD_ENABLED=true but HERD_API_URL not set');
     if (!process.env.HERD_API_KEY) errors.push('HERD_ENABLED=true but HERD_API_KEY not set');
-  }
-
-  // Optional but helpful warnings for features that will fail without them
-  if (!process.env.ZERION_API_KEY) {
-    errors.push('Missing ZERION_API_KEY — wallet_history will not work');
   }
 
   return errors;
