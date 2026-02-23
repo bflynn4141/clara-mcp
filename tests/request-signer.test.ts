@@ -191,7 +191,7 @@ describe('signedFetch', () => {
     vi.stubGlobal('fetch', mockFetch);
 
     await signedFetch(
-      'https://clara-proxy.bflynn-me.workers.dev/api/v1/test',
+      'https://clara-proxy.bflynn4141.workers.dev/api/v1/test',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -226,7 +226,7 @@ describe('signedFetch', () => {
 
     const body = JSON.stringify({ amount: '100' });
     await signedFetch(
-      'https://clara-proxy.bflynn-me.workers.dev/api/v1/send',
+      'https://clara-proxy.bflynn4141.workers.dev/api/v1/send',
       { method: 'POST', body },
       sk,
     );

@@ -227,7 +227,7 @@ export function loadParaConfig(): ParaConfig {
 // Import session storage for wallet management
 import { getSession, saveSession, clearSession } from '../storage/session.js';
 
-const CLARA_PROXY = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+const CLARA_PROXY = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
 export interface SetupResult {
   isNew: boolean;

@@ -14,11 +14,6 @@ import type { ToolContext, ToolResult } from '../middleware.js';
 import { formatSpendingSummary, getSpendingHistory } from '../storage/spending.js';
 import { CHAINS, getRpcUrl, type SupportedChain } from '../config/chains.js';
 import { getProviderRegistry } from '../providers/index.js';
-import {
-  fetchClaraStakingData,
-  getClaraContracts,
-  type ClaraStakingData,
-} from '../config/clara-contracts.js';
 
 /**
  * Known token addresses by chain (same as balance.ts)
@@ -274,10 +269,9 @@ export async function handleDashboardRequest(
   try {
     const address = ctx.walletAddress;
 
-    // Fetch wallet status, balances, and CLARA staking data in parallel
-    const [status, claraStaking, ...chainBalances] = await Promise.all([
+    // Fetch wallet status and balances in parallel
+    const [status, ...chainBalances] = await Promise.all([
       getWalletStatus(),
-      fetchClaraStakingData(address),
       ...DASHBOARD_CHAINS.map((chain) => fetchChainBalances(chain, address, includeZero)),
     ]);
 
@@ -338,27 +332,6 @@ export async function handleDashboardRequest(
       }
     }
 
-    // CLARA staking section (only shown when data is available)
-    if (claraStaking) {
-      const contracts = getClaraContracts();
-      const claraBalNum = parseFloat(claraStaking.claraBalance);
-      const stakedNum = parseFloat(claraStaking.stakedBalance);
-      const claimableNum = parseFloat(claraStaking.claimableUsdc);
-      const totalStakedNum = parseFloat(claraStaking.totalStaked);
-
-      lines.push(`## 🏦 CLARA Staking (${claraStaking.network})`);
-      lines.push(`- **CLARA Balance:** ${claraBalNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-      lines.push(`- **Staked:** ${stakedNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CLARA`);
-      lines.push(`- **Claimable Rewards:** ${claimableNum.toFixed(6)} USDC`);
-      lines.push(`- **Your Share:** ${claraStaking.sharePercent.toFixed(2)}% of ${totalStakedNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total staked`);
-      lines.push('');
-
-      if (claraBalNum > 0 && stakedNum === 0) {
-        lines.push(`> 💡 Stake CLARA to earn a share of x402 fees: \`wallet_call contract="${contracts.claraStaking}" function="stake(uint256)" args=["${BigInt(Math.floor(claraBalNum)).toString()}000000000000000000"] chain="base"\``);
-        lines.push('');
-      }
-    }
-
     // Spending limits
     lines.push('## 🔒 Spending Limits');
     lines.push(formatSpendingSummary());
@@ -376,10 +349,10 @@ export async function handleDashboardRequest(
 
     // Suggested actions
     lines.push('## 💡 Actions');
-    lines.push('- `wallet_balance chain="base"` - Detailed balance for a specific chain');
-    lines.push('- `wallet_briefing` - AI-powered insights on your holdings');
-    lines.push('- `wallet_opportunities` - Find yield opportunities for your positions');
     lines.push('- `wallet_history` - View transaction history');
+    lines.push('- `wallet_send` - Send tokens');
+    lines.push('- `wallet_call` - Call any contract');
+    lines.push('- `wallet_approvals` - Review token approvals');
 
     // Build structured data for programmatic use
     const structuredData = {
@@ -402,16 +375,6 @@ export async function handleDashboardRequest(
         })),
       },
       recentPayments: recentSpending.length,
-      claraStaking: claraStaking
-        ? {
-            network: claraStaking.network,
-            claraBalance: claraStaking.claraBalance,
-            stakedBalance: claraStaking.stakedBalance,
-            claimableUsdc: claraStaking.claimableUsdc,
-            totalStaked: claraStaking.totalStaked,
-            sharePercent: claraStaking.sharePercent,
-          }
-        : null,
     };
 
     // Include structured data as JSON block at the end

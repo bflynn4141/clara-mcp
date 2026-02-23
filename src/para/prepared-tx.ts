@@ -124,14 +124,6 @@ function cleanupExpired(): void {
 }
 
 /**
- * Get all active prepared transactions (for debugging/listing)
- */
-export function listPreparedTxs(): PreparedTransaction[] {
-  cleanupExpired();
-  return Array.from(preparedTxCache.values());
-}
-
-/**
  * Format a prepared transaction for display
  */
 export function formatPreparedTx(tx: PreparedTransaction): string {

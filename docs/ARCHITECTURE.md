@@ -25,18 +25,18 @@ Clara is an AI agent wallet system that enables autonomous payments and blockcha
                                           ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         CLARA PROXY (Cloudflare Worker)                      │
-│                     https://clara-proxy.bflynn-me.workers.dev                │
+│                     https://clara-proxy.bflynn4141.workers.dev                │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │                         Request Flow                                 │   │
 │  │  1. Receive request with X-Clara-Address header                     │   │
 │  │  2. Check on-chain credits via ClaraCredits contract                │   │
 │  │  3. If has credits → forward to Para API with injected API key      │   │
 │  │  4. If no credits → return 402 with deposit instructions            │   │
-│  │  5. On success → record usage in KV for later settlement            │   │
+│  │  5. On success → record usage in KV for tracking                    │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐    │
-│  │  PARA_API_KEY   │    │  USAGE (KV)     │    │ SETTLEMENT_KEY      │    │
+│  │  PARA_API_KEY   │    │  USAGE (KV)     │    │ ENS_SIGNING_KEY     │    │
 │  │  (Secret)       │    │  (Namespace)    │    │ (Secret)            │    │
 │  └─────────────────┘    └─────────────────┘    └─────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -100,7 +100,7 @@ clara-mcp/
 **Purpose:**
 - Inject Para API key (keeps it secret)
 - Check prepaid credits before allowing signing
-- Track usage for settlement
+- Track usage in KV
 
 **Routes:**
 | Route | Method | Credits | Description |
@@ -109,9 +109,14 @@ clara-mcp/
 | `/api/v1/wallets` | GET | Free | List wallets |
 | `/api/v1/wallets/{id}/sign-raw` | POST | Required | Sign hash |
 | `/api/v1/wallets/{id}/sign-typed-data` | POST | Required | EIP-712 signing |
+| `/api/v1/wallets/{id}/sign-transaction` | POST | Required | Sign transaction |
 | `/health` | GET | - | Health check |
-| `/api/usage` | GET | - | View pending usage |
-| `/api/settle` | POST | - | Trigger settlement |
+| `/api/usage` | GET | Admin | View tracked usage |
+| `/admin/stats` | GET | Admin | System overview |
+| `/admin/users` | GET | Admin | List all users |
+| `/ens/resolve` | POST | - | CCIP-Read gateway |
+| `/auth/nonce` | GET | - | Session nonce |
+| `/auth/session` | POST | - | Create session |
 
 **Credit Check Flow:**
 ```
@@ -137,15 +142,12 @@ function hasCredits(address user, uint256 operations) view returns (bool)
 
 // Deduct credits after signing (called by authorized proxy)
 function spend(address user, uint256 operations) external
-
-// Batch settlement for efficiency
-function batchSpend(address[] users, uint256[] operations) external
 ```
 
 **Economics:**
 - Cost per operation: $0.001 (1,000 USDC units)
 - Minimum deposit: $0.10 (100,000 USDC units)
-- Settlement: Hourly batch via cron
+- Free tier: first 1,000 operations (~$1.00 worth)
 
 ### 4. Para API
 
@@ -234,7 +236,7 @@ POST /v1/wallets/{id}/sign-raw
 ### What ClaraCredits Controls
 - Who can sign (credit balance check)
 - Cost per operation
-- Settlement accounting
+- Usage tracking
 
 ### Trust Assumptions
 1. **Para is honest** - They can't sign without user share, but they could refuse to sign
@@ -257,7 +259,7 @@ npx clara-mcp
 cd clara-proxy
 wrangler deploy
 wrangler secret put PARA_API_KEY
-wrangler secret put SETTLEMENT_PRIVATE_KEY
+wrangler secret put ENS_SIGNING_KEY
 ```
 
 ### ClaraCredits (Foundry)
@@ -271,7 +273,7 @@ forge script script/Deploy.s.sol --rpc-url https://mainnet.base.org --broadcast
 ### Environment Variables (Clara MCP)
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CLARA_PROXY_URL` | Proxy endpoint | `https://clara-proxy.bflynn-me.workers.dev` |
+| `CLARA_PROXY_URL` | Proxy endpoint | `https://clara-proxy.bflynn4141.workers.dev` |
 | `CLARA_SESSION_PATH` | Session storage dir | `~/.clara` |
 | `CHAINSTACK_API_KEY` | Optional RPC key | - |
 
@@ -279,7 +281,8 @@ forge script script/Deploy.s.sol --rpc-url https://mainnet.base.org --broadcast
 | Secret | Description |
 |--------|-------------|
 | `PARA_API_KEY` | Para API authentication |
-| `SETTLEMENT_PRIVATE_KEY` | Wallet for calling spend() |
+| `ENS_SIGNING_KEY` | CCIP-Read gateway signatures |
+| `ADMIN_KEY` | Admin endpoint authentication (optional) |
 
 ### KV Namespaces (Proxy)
 | Binding | Purpose |

@@ -136,13 +136,6 @@ export function getExplorerTxUrl(chain: SupportedChain, txHash: string): string 
 }
 
 /**
- * Get explorer URL for an address
- */
-export function getExplorerAddressUrl(chain: SupportedChain, address: string): string {
-  return `${CHAINS[chain].explorerUrl}/address/${address}`;
-}
-
-/**
  * Get chain ID for a supported chain
  */
 export function getChainId(chain: SupportedChain): number {

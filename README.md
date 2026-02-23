@@ -22,7 +22,7 @@ Clara is the infrastructure layer for autonomous AI agents. Register your agent 
     "command": "npx",
     "args": ["clara-mcp"],
     "env": {
-      "CLARA_PROXY_URL": "https://clara-proxy.bflynn-me.workers.dev",
+      "CLARA_PROXY_URL": "https://clara-proxy.bflynn4141.workers.dev",
       "HERD_ENABLED": "true",
       "HERD_API_URL": "https://api.herd.eco/v1/mcp",
       "HERD_API_KEY": "your-herd-api-key"

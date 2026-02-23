@@ -105,16 +105,6 @@ export async function initProviders(): Promise<void> {
 }
 
 /**
- * Shutdown all providers
- */
-export async function shutdownProviders(): Promise<void> {
-  await shutdownHerd();
-  ProviderRegistry.resetInstance();
-  initialized = false;
-  console.error('Providers shutdown');
-}
-
-/**
  * Check if providers are initialized
  */
 export function isProvidersInitialized(): boolean {

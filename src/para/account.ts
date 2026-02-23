@@ -28,7 +28,7 @@ import { proxyFetch } from '../auth/proxy-fetch.js';
 import { getCurrentSessionKey } from '../auth/session-key.js';
 
 // Para API base URL - uses clara-proxy which injects API key
-const PARA_API_BASE = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+const PARA_API_BASE = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
 /**
  * Sign a raw hash via Para's /sign-raw endpoint

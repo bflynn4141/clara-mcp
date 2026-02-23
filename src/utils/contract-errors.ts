@@ -12,32 +12,16 @@ import { type Hex } from 'viem';
  * Format: 4-byte selector => human readable description
  */
 export const KNOWN_ERROR_SIGNATURES: Record<string, string> = {
-  // Bounty contract errors
-  '0xf924664d': 'InvalidStatus: Bounty is not in the expected state (e.g., already claimed, submitted, or closed)',
-  '0x2c5d96a5': 'NotClaimer: Only the claimer can perform this action',
-  '0x30cd92e7': 'NotPoster: Only the poster can perform this action',
+  // Generic EVM errors
   '0x08c379a0': 'GenericError: Contract reverted with a message',
   '0x4e487b71': 'Panic: Internal contract error (check for overflow/underflow)',
-  
+
   // ERC-20 errors
   '0xfb8f41b2': 'ERC20InsufficientBalance: Not enough tokens for this operation',
   '0x3e3f8f73': 'ERC20InsufficientAllowance: Token allowance too low. Approve more tokens first',
-  
+
   // Generic
   '0xcd786059': 'AddressEmptyCode: Contract address has no code (wrong address?)',
-};
-
-/**
- * Bounty status codes for error messages
- */
-export const BOUNTY_STATUS_NAMES: Record<number, string> = {
-  0: 'Open (available to claim)',
-  1: 'Claimed (awaiting submission)',
-  2: 'Submitted (awaiting review)',
-  3: 'Approved (completed)',
-  4: 'Rejected (work rejected)',
-  5: 'Cancelled (cancelled by poster)',
-  6: 'Expired (deadline passed)',
 };
 
 export interface DecodedContractError {
@@ -129,19 +113,12 @@ export function decodeContractError(error: unknown): DecodedContractError {
  */
 function getSuggestionForError(signature: string, originalError: unknown): string | undefined {
   switch (signature) {
-    case '0xf924664d': // InvalidStatus
-      return 'Check the bounty status with `work_browse --all` before claiming. The bounty may have been claimed by someone else.';
-    
     case '0x3e3f8f73': // ERC20InsufficientAllowance
+      return 'The contract needs a token allowance. Use wallet_call to approve the contract to spend your tokens first.';
+
     case '0xfb8f41b2': // ERC20InsufficientBalance
-      return 'You need to approve the bounty contract to spend your tokens. Use the approve-bond command first.';
-    
-    case '0x2c5d96a5': // NotClaimer
-      return 'Only the agent who claimed this bounty can perform this action.';
-    
-    case '0x30cd92e7': // NotPoster
-      return 'Only the bounty poster can perform this action.';
-    
+      return 'Check your token balance with wallet_dashboard.';
+
     default:
       return undefined;
   }

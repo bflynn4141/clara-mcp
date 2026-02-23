@@ -187,7 +187,7 @@ describe('T10: MCP config precedence', () => {
 
     // Project-level config (.mcp.json) has these:
     const projectLevelEnv = {
-      CLARA_PROXY_URL: 'https://clara-proxy.bflynn-me.workers.dev',
+      CLARA_PROXY_URL: 'https://clara-proxy.bflynn4141.workers.dev',
       PARA_WALLET_ID: '...',
       PARA_WALLET_ADDRESS: '...',
       BASE_RPC_URL: '...',

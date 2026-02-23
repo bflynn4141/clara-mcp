@@ -10,8 +10,6 @@ export {
   signedFetch,
   buildCanonicalMessage,
   signCanonicalMessage,
-  verifyCanonicalMessage,
-  recoverPublicKey,
   sha256hex,
   type SignedFetchOptions,
 } from './request-signer.js';

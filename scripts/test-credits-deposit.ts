@@ -106,7 +106,7 @@ async function main() {
   }
 
   console.log('🎉 Deposit complete! Check credits with:');
-  console.log(`   curl 'https://clara-proxy.bflynn-me.workers.dev/api/test-credits?address=${session.address}'`);
+  console.log(`   curl 'https://clara-proxy.bflynn4141.workers.dev/api/test-credits?address=${session.address}'`);
 }
 
 main().catch(console.error);

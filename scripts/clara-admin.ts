@@ -13,10 +13,10 @@
  *
  * Environment:
  *   CLARA_ADMIN_KEY - Admin API key (optional in dev mode)
- *   CLARA_PROXY_URL - Proxy URL (default: https://clara-proxy.bflynn-me.workers.dev)
+ *   CLARA_PROXY_URL - Proxy URL (default: https://clara-proxy.bflynn4141.workers.dev)
  */
 
-const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+const PROXY_URL = process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 const ADMIN_KEY = process.env.CLARA_ADMIN_KEY || '';
 
 interface StatsResponse {
@@ -248,7 +248,7 @@ Usage:
 
 Environment Variables:
   CLARA_ADMIN_KEY    Admin API key (optional if proxy has no ADMIN_KEY set)
-  CLARA_PROXY_URL    Proxy URL (default: https://clara-proxy.bflynn-me.workers.dev)
+  CLARA_PROXY_URL    Proxy URL (default: https://clara-proxy.bflynn4141.workers.dev)
 `);
     return;
   }

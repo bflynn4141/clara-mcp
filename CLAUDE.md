@@ -2,8 +2,10 @@
 
 ## Architecture
 
-Clara MCP is a stdio-based MCP server that provides wallet management tools.
-It uses a **provider registry** pattern to route requests to the best available data source.
+Clara MCP is a focused **14-tool wallet primitive** — a stdio-based MCP server
+that handles session management, balance reading, transaction sending, message
+signing, spending limits, and ENS identity. Other MCP servers compose with Clara
+via the `wallet_call` + `wallet_executePrepared` two-phase flow.
 
 ### Provider Hierarchy
 
@@ -15,15 +17,32 @@ It uses a **provider registry** pattern to route requests to the best available 
 | Tx history | Zerion (`HistoryList`) | None |
 | Wallet actions | Para SDK (local) | None |
 
+### 14 Core Tools
+
+| Category | Tools |
+|----------|-------|
+| Session | `wallet_setup`, `wallet_status`, `wallet_logout` |
+| Read | `wallet_dashboard`, `wallet_history` |
+| Write | `wallet_send`, `wallet_call`, `wallet_executePrepared` |
+| Sign | `wallet_sign_message`, `wallet_sign_typed_data` |
+| Safety | `wallet_approvals`, `wallet_spending_limits` |
+| Identity | `wallet_register_name`, `wallet_lookup_name` |
+
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `src/providers/types.ts` | All provider interfaces and capability types |
-| `src/providers/herd.ts` | Herd MCP client + all Herd provider implementations |
-| `src/providers/registry.ts` | Capability-based routing (singleton `ProviderRegistry`) |
-| `src/providers/index.ts` | Provider initialization and registration |
-| `src/tools/dashboard.ts` | `wallet_dashboard` tool - uses `TokenDiscovery` with RPC fallback |
+| `src/index.ts` | Server entry, tool registration (12 tools) |
+| `src/tool-registry.ts` | Generic dispatch + middleware pipeline |
+| `src/middleware.ts` | Auth, gas preflight, spending checks |
+| `src/providers/registry.ts` | Capability-based routing (singleton) |
+| `src/providers/herd.ts` | Herd MCP client + provider implementations |
+| `src/tools/dashboard.ts` | `wallet_dashboard` — TokenDiscovery with RPC fallback |
+| `src/tools/call.ts` | `wallet_call` — the composability interface |
+| `src/tools/execute-prepared.ts` | `wallet_executePrepared` — execute prepared txs |
+| `src/para/client.ts` | Para API wrapper |
+| `src/storage/session.ts` | AES-256-GCM encrypted sessions |
+| `src/storage/spending.ts` | Spending limits + history |
 
 ---
 
@@ -31,7 +50,7 @@ It uses a **provider registry** pattern to route requests to the best available 
 
 ### 1. Clara MCP tools not loading in Claude Code
 
-**Symptom:** `/clara` skill says "Clara MCP server not connected" even though `/mcp` shows it as connected.
+**Symptom:** Clara tools don't appear even though `/mcp` shows it as connected.
 
 **Root cause:** The MCP server may crash during initialization (e.g., missing env vars, Herd connection timeout) but Claude Code still shows it as "connected" because the transport connected briefly.
 
@@ -62,7 +81,7 @@ It uses a **provider registry** pattern to route requests to the best available 
     "command": "node",
     "args": ["/Users/brianflynn/clara-mcp/dist/index.js"],
     "env": {
-      "CLARA_PROXY_URL": "https://clara-proxy.bflynn-me.workers.dev",
+      "CLARA_PROXY_URL": "https://clara-proxy.bflynn4141.workers.dev",
       "ZERION_API_KEY": "...",
       "HERD_ENABLED": "true",
       "HERD_API_URL": "https://api.herd.eco/v1/mcp",
@@ -84,20 +103,11 @@ It uses a **provider registry** pattern to route requests to the best available 
 - `valueUsd` - number, USD value from Dune pricing
 - `logoUrl` - string or null
 
-**Resolution:** Always validate response types against the actual Herd API output. Run:
-```bash
-# Test Herd tool directly
-ToolSearch query: "select:mcp__herd__getWalletOverviewTool"
-mcp__herd__getWalletOverviewTool walletAddress="0x..." blockchain="base"
-```
-
 ---
 
 ### 4. Server needs restart after rebuild
 
 **Symptom:** Code changes don't take effect after `npm run build`.
-
-**Root cause:** MCP servers run as persistent child processes. The old process keeps running with stale code.
 
 **Resolution:** Restart Claude Code session (close terminal, reopen) or use `/mcp` to restart the server.
 
@@ -108,8 +118,6 @@ mcp__herd__getWalletOverviewTool walletAddress="0x..." blockchain="base"
 The dashboard (`src/tools/dashboard.ts`) tries Herd first for ethereum/base chains:
 - **Herd available:** Returns ALL tokens with USD values
 - **Herd unavailable:** Falls back to RPC with hardcoded list (USDC, USDT, DAI, WETH only)
-
-This means if Herd is down, users will see fewer tokens. This is expected behavior, not a bug.
 
 ---
 
@@ -128,21 +136,29 @@ This means if Herd is down, users will see fewer tokens. This is expected behavi
 
 ```bash
 npm run build          # TypeScript → dist/
+npm test               # Run tests
 node dist/index.js     # Start server (needs env vars)
 ```
 
-### Quick integration test:
-```bash
-HERD_ENABLED=true HERD_API_URL="https://api.herd.eco/v1/mcp" HERD_API_KEY="herd_mcp_123" \
-  node -e "
-    const { initProviders, getProviderRegistry } = require('./dist/providers/index.js');
-    async function test() {
-      await initProviders();
-      const r = getProviderRegistry();
-      const result = await r.discoverTokens('0x8744baf00f5ad7ffccc56c25fa5aa9270e2caffd', 'base');
-      console.log(JSON.stringify(result, null, 2));
-      process.exit(0);
-    }
-    test();
-  "
+## Composability Pattern
+
+Other MCP servers provide calldata, Clara signs and sends:
+
+```
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  Swap MCP    │  │  Bounty MCP  │  │  Payments MCP│
+│  (calldata)  │  │  (calldata)  │  │  (x402)      │
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       └─────────────────┼─────────────────┘
+                         ▼
+         ┌───────────────────────────┐
+         │  Clara Wallet (14 tools)  │
+         │  wallet_call → Prepared   │
+         │  wallet_executePrepared   │
+         └───────────┬───────────────┘
+                     ▼
+         ┌───────────────────────────┐
+         │  clara-proxy (CF Worker)  │
+         │  Para MPC signing         │
+         └───────────────────────────┘
 ```

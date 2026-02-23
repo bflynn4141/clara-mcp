@@ -21,7 +21,7 @@ import { getRpcUrl } from '../config/chains.js';
 // ─── Config ──────────────────────────────────────────────
 
 const GATEWAY_BASE =
-  process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+  process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 
 const PARENT_DOMAIN = 'claraid.eth';
 

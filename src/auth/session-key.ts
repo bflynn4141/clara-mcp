@@ -64,8 +64,8 @@ let cachedSessionKey: SessionKeyData | null = null;
 // ─── Constants ──────────────────────────────────────────
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const PROXY_DOMAIN = 'clara-proxy.bflynn-me.workers.dev';
-const PROXY_URI = 'https://clara-proxy.bflynn-me.workers.dev';
+const PROXY_DOMAIN = 'clara-proxy.bflynn4141.workers.dev';
+const PROXY_URI = 'https://clara-proxy.bflynn4141.workers.dev';
 const CHAIN_ID = 8453; // Base
 
 // ─── Public API ─────────────────────────────────────────

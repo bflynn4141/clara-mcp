@@ -335,21 +335,9 @@ export async function signAndSendTransaction(
 }
 
 /**
- * Convenience wrapper that returns just the hash string
- * (for simpler call sites that don't need the full result object)
- */
-export async function sendTransaction(
-  walletId: string,
-  tx: TransactionParams
-): Promise<Hex> {
-  const result = await signAndSendTransaction(walletId, tx);
-  return result.txHash;
-}
-
-/**
  * Get the Para API base URL
  * Exposed for modules that need to make other Para API calls
  */
 export function getParaApiBase(): string {
-  return process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn-me.workers.dev';
+  return process.env.CLARA_PROXY_URL || 'https://clara-proxy.bflynn4141.workers.dev';
 }
